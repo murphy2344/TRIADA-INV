@@ -8,19 +8,32 @@ from modules.storage import is_published, get_recent_titles, mark_published as s
 
 logger = logging.getLogger(__name__)
 
-UPSTASH_URL = os.environ.get("UPSTASH_REDIS_REST_URL", "").rstrip("/")
-UPSTASH_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
+# Поддерживаем ОБА варианта названий — REST API (новый бот) и классический (старый бот)
+# Upstash даёт в дашборде вкладку «REST API» — берите оттуда URL и Token
+UPSTASH_URL = (
+    os.environ.get("UPSTASH_REDIS_REST_URL", "")
+    or os.environ.get("UPSTASH_URL", "")
+).rstrip("/")
+UPSTASH_TOKEN = (
+    os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
+    or os.environ.get("UPSTASH_TOKEN", "")
+)
 USE_REDIS = bool(UPSTASH_URL and UPSTASH_TOKEN)
 PREFIX = "triada"
 TTL = 21600  # 6 hours
 
 
 if USE_REDIS:
-    logger.info("Dedup: Upstash Redis ENABLED ✅")
+    # Показываем первые символы URL чтобы убедиться что правильный
+    logger.info(f"Dedup: Upstash Redis ENABLED ✅  url={UPSTASH_URL[:40]}...")
 else:
     logger.warning(
-        "⚠️ DEDUP: Upstash Redis НЕ настроен — используется SQLite (данные сбрасываются при рестарте Render!). "
-        "Задайте UPSTASH_REDIS_REST_URL и UPSTASH_REDIS_REST_TOKEN в переменных окружения Render."
+        "⚠️ DEDUP: Upstash Redis НЕ найден — используется SQLite (сбрасывается при рестарте Render!). "
+        "Проверьте переменные окружения на Render: "
+        f"UPSTASH_REDIS_REST_URL={'SET' if os.environ.get('UPSTASH_REDIS_REST_URL') else 'MISSING'}, "
+        f"UPSTASH_REDIS_REST_TOKEN={'SET' if os.environ.get('UPSTASH_REDIS_REST_TOKEN') else 'MISSING'}, "
+        f"UPSTASH_URL={'SET' if os.environ.get('UPSTASH_URL') else 'MISSING'}, "
+        f"UPSTASH_TOKEN={'SET' if os.environ.get('UPSTASH_TOKEN') else 'MISSING'}"
     )
 
 
@@ -34,12 +47,25 @@ async def _redis(cmd: list):
         async with aiohttp.ClientSession() as s:
             async with s.post(
                 UPSTASH_URL, data=json.dumps(cmd), headers=headers,
-                timeout=aiohttp.ClientTimeout(total=5)
+                timeout=aiohttp.ClientTimeout(total=8)
             ) as r:
+                if r.status not in (200, 201):
+                    body = await r.text()
+                    logger.error(
+                        f"Upstash HTTP {r.status} на команду {cmd[0]}: {body[:200]}. "
+                        f"Проверьте UPSTASH_REDIS_REST_TOKEN на Render."
+                    )
+                    return None
                 data = await r.json()
                 return data.get("result")
+    except aiohttp.ClientConnectorError as e:
+        logger.error(
+            f"Upstash: ошибка соединения ({cmd[0]}): {e}. "
+            f"URL: {UPSTASH_URL[:40]}... — проверьте UPSTASH_REDIS_REST_URL на Render."
+        )
+        return None
     except Exception as e:
-        logger.error(f"Upstash Redis error {cmd[0]}: {e}")
+        logger.error(f"Upstash Redis error {cmd[0]}: {type(e).__name__}: {e}")
         return None
 
 
