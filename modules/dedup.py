@@ -15,8 +15,13 @@ PREFIX = "triada"
 TTL = 21600  # 6 hours
 
 
-if not USE_REDIS:
-    logger.warning("UPSTASH_REDIS_REST_URL/TOKEN not set — using SQLite dedup (not persistent across restarts)")
+if USE_REDIS:
+    logger.info("Dedup: Upstash Redis ENABLED ✅")
+else:
+    logger.warning(
+        "⚠️ DEDUP: Upstash Redis НЕ настроен — используется SQLite (данные сбрасываются при рестарте Render!). "
+        "Задайте UPSTASH_REDIS_REST_URL и UPSTASH_REDIS_REST_TOKEN в переменных окружения Render."
+    )
 
 
 async def _redis(cmd: list):
@@ -140,6 +145,18 @@ async def mark_event_published(subject_en: str, category: str):
         from modules.storage import mark_published
         synthetic_id = hashlib.md5(fingerprint.encode()).hexdigest()
         await mark_published(synthetic_id, fingerprint, "event_fingerprint", "", "EVENT")
+
+
+async def check_redis_connection() -> bool:
+    """Проверяет живое соединение с Upstash Redis. Используется при старте."""
+    if not USE_REDIS:
+        return False
+    result = await _redis(["PING"])
+    return result == "PONG"
+
+
+def get_dedup_mode() -> str:
+    return "Upstash Redis ✅" if USE_REDIS else "SQLite ⚠️ (не персистентно!)"
 
 
 async def mark_as_published(news_id: str, title: str):
