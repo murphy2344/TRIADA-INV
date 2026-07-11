@@ -13,11 +13,11 @@ logger = logging.getLogger(__name__)
 UPSTASH_URL = (
     os.environ.get("UPSTASH_REDIS_REST_URL", "")
     or os.environ.get("UPSTASH_URL", "")
-).rstrip("/")
+).strip().strip('"').strip("'").rstrip("/")
 UPSTASH_TOKEN = (
     os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
     or os.environ.get("UPSTASH_TOKEN", "")
-)
+).strip().strip('"').strip("'")
 USE_REDIS = bool(UPSTASH_URL and UPSTASH_TOKEN)
 PREFIX = "triada"
 TTL = 21600  # 6 hours
