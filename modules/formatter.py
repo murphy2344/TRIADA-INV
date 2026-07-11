@@ -140,7 +140,7 @@ def fmt_weekly(analyses: list, fng: str = "", accuracy: dict | None = None) -> t
             f"{_e(a.get('summary', '')[:200])}\n\n"
         )
     if fng:
-        body += f"\n<b>Индекс страха и жадности:</b> {fng}"
+        body += f"\n{fng}"
     if accuracy and accuracy.get("total"):
         body += (
             f"\n\n<b>Точность рекомендаций за неделю:</b> "
