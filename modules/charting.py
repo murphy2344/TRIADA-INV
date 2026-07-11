@@ -48,6 +48,9 @@ def resolve_ticker(raw: str) -> str | None:
     if not raw:
         return None
     lower = raw.lower().strip()
+    # Отклоняем "null", "none", "n/a" — AI иногда возвращает их как строку
+    if lower in ("null", "none", "n/a", "na", ""):
+        return None
     if lower in TICKER_ALIASES:
         return TICKER_ALIASES[lower]
     return raw.upper()

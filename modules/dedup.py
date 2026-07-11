@@ -10,14 +10,21 @@ logger = logging.getLogger(__name__)
 
 # Поддерживаем ОБА варианта названий — REST API (новый бот) и классический (старый бот)
 # Upstash даёт в дашборде вкладку «REST API» — берите оттуда URL и Token
-UPSTASH_URL = (
+def _clean_env(val: str) -> str:
+    """Убирает кавычки, пробелы и ВСЕ управляющие символы (включая \n \r внутри строки)."""
+    import re
+    val = val.strip().strip('"').strip("'").strip()
+    val = re.sub(r'[\x00-\x1f\x7f]', '', val)  # удаляем все control characters
+    return val
+
+UPSTASH_URL = _clean_env(
     os.environ.get("UPSTASH_REDIS_REST_URL", "")
     or os.environ.get("UPSTASH_URL", "")
-).strip().strip('"').strip("'").rstrip("/")
-UPSTASH_TOKEN = (
+).rstrip("/")
+UPSTASH_TOKEN = _clean_env(
     os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
     or os.environ.get("UPSTASH_TOKEN", "")
-).strip().strip('"').strip("'")
+)
 USE_REDIS = bool(UPSTASH_URL and UPSTASH_TOKEN)
 PREFIX = "triada"
 TTL = 21600  # 6 hours
