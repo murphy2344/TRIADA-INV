@@ -64,7 +64,8 @@ def fmt_breaking(analysis: dict, source: str, url: str) -> str:
         f"<b>Возможный сценарий:</b>\n{_e(analysis.get('scenario', ''))}\n\n"
         f"<b>Рекомендация:</b>\n{_rec(analysis)}"
         f"</blockquote>\n\n"
-        f"Источник: {_e(source)} • <a href='{url}'>читать</a>"
+        f"Источник: {_e(source)} • <a href='{url}'>читать</a>\n\n"
+        f"#срочные_новости #рынок #TRIADA_INVESTING"
     )
 
 
@@ -95,7 +96,7 @@ def fmt_hourly_body(analyses: list) -> str:
         f"• <a href='{a.get('_url', '#')}'>{_e(a.get('_source', ''))}</a>"
         for a in analyses[:4]
     )
-    body += f"</blockquote>\n\nИсточники:\n{sources}"
+    body += f"</blockquote>\n\nИсточники:\n{sources}\n\n#новости_часа #рынок #TRIADA_INVESTING"
     return body
 
 
@@ -110,7 +111,7 @@ def fmt_morning(analyses: list, date_str: str, fng: str = "") -> tuple[str, str]
             f"{_e(a.get('summary', '')[:250])}\n"
             f"Для рынка сегодня: {_e(a.get('scenario', ''))}\n\n"
         )
-    body += "</blockquote>"
+    body += "</blockquote>\n\n#утренний_обзор #рынок #TRIADA_INVESTING"
     return header, body
 
 
@@ -127,7 +128,7 @@ def fmt_evening(analyses: list, date_str: str, fng: str = "") -> tuple[str, str]
         )
     if analyses:
         body += f"\n<b>Подготовка к завтрашнему дню:</b>\n{_e(analyses[0].get('scenario', ''))}"
-    body += "</blockquote>"
+    body += "</blockquote>\n\n#итоги_дня #рынок #TRIADA_INVESTING"
     return header, body
 
 
@@ -146,7 +147,7 @@ def fmt_weekly(analyses: list, fng: str = "", accuracy: dict | None = None) -> t
             f"\n\n<b>Точность рекомендаций за неделю:</b> "
             f"{accuracy['accuracy_pct']}% ({accuracy['correct']}/{accuracy['total']})"
         )
-    body += "</blockquote>"
+    body += "</blockquote>\n\n#итоги_недели #рынок #TRIADA_INVESTING"
     return header, body
 
 
@@ -178,7 +179,7 @@ def fmt_leaders(all_periods: dict) -> tuple[str, str]:
     if not any_data:
         body += "Нет данных за выбранные периоды (возможно, выходной день на бирже)."
 
-    body += "</blockquote>\nИсточник: MOEX ISS"
+    body += "</blockquote>\nИсточник: MOEX ISS\n\n#лидеры_рынка #мосбиржа #TRIADA_INVESTING"
     return header, body
 
 
@@ -198,7 +199,7 @@ def fmt_monthly(analyses: list) -> tuple[str, str]:
             all_assets.extend(assets)
     if all_assets:
         body += _e(", ".join(dict.fromkeys(all_assets))[:300])
-    body += "</blockquote>"
+    body += "</blockquote>\n\n#итоги_месяца #рынок #TRIADA_INVESTING"
     return header, body
 
 
@@ -206,4 +207,7 @@ def fmt_exchange_open(exchange: str, index: str, now: datetime = None) -> str:
     if not now:
         now = datetime.now(MSK)
     time_str = now.strftime("%H:%M МСК")
-    return f"Открылась торговая сессия: <b>{_e(exchange)}</b> ({_e(index)}) — {time_str}"
+    return (
+        f"Открылась торговая сессия: <b>{_e(exchange)}</b> ({_e(index)}) — {time_str}\n\n"
+        f"#открытие_биржи #рынок #TRIADA_INVESTING"
+    )
