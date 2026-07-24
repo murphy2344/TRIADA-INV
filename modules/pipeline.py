@@ -165,7 +165,7 @@ async def run_hourly(bot, admin_id: str = None):
     now    = datetime.now(MSK)
     header = formatter.fmt_hourly_header(now)
     body   = formatter.fmt_hourly_body(analyses)
-    photo  = await media.get_photo("financial markets trading floor", post_category="hourly")
+    photo  = "assets/stubs/hourly.jpg"
     ok     = await telegram_sender.send_two_messages(bot, photo, header, body)
 
     if ok:
@@ -192,7 +192,7 @@ async def run_morning(bot, admin_id: str = None):
 
     analyses       = ai_analyzer.analyze_batch(fresh, "MORNING") if fresh else []
     header, body   = formatter.fmt_morning(analyses, date_str, fng)
-    photo          = await media.get_photo("global financial markets morning", post_category="morning")
+    photo          = "assets/stubs/morning.jpg"
     ok             = await telegram_sender.send_two_messages(bot, photo, header, body)
 
     if ok:
@@ -217,7 +217,7 @@ async def run_evening(bot, admin_id: str = None):
 
     analyses     = ai_analyzer.analyze_batch(fresh, "EVENING") if fresh else []
     header, body = formatter.fmt_evening(analyses, date_str, fng)
-    photo        = await media.get_photo("stock market closing bell evening", post_category="evening")
+    photo        = "assets/stubs/evening.jpg"
     ok           = await telegram_sender.send_two_messages(bot, photo, header, body)
 
     if ok:
@@ -238,7 +238,7 @@ async def run_weekly(bot, admin_id: str = None):
     fng       = await _get_fear_greed()
     accuracy  = await storage.get_accuracy_stats(days=7)
     header, body = formatter.fmt_weekly(analyses, fng, accuracy)
-    photo     = await media.get_photo("weekly financial markets summary", post_category="weekly")
+    photo     = "assets/stubs/weekly.jpg"
     ok        = await telegram_sender.send_two_messages(bot, photo, header, body)
     if ok:
         await storage.increment_stats()
@@ -250,7 +250,7 @@ async def run_monthly(bot, admin_id: str = None):
     news_list = news_sources.fetch_news(limit_per_feed=6)
     analyses  = ai_analyzer.analyze_batch(news_list[:6], "MONTHLY") if news_list else []
     header, body = formatter.fmt_monthly(analyses)
-    photo     = await media.get_photo("monthly financial market review", post_category="monthly")
+    photo     = "assets/stubs/monthly.jpg"
     ok        = await telegram_sender.send_two_messages(bot, photo, header, body)
     if ok:
         await storage.increment_stats()
@@ -261,7 +261,8 @@ async def run_monthly(bot, admin_id: str = None):
 async def run_exchange_open(bot, exchange: str, index: str):
     now  = datetime.now(MSK)
     text = formatter.fmt_exchange_open(exchange, index, now)
-    await telegram_sender.send_text(bot, text)
+    photo = "assets/stubs/exchange.jpg"
+    await telegram_sender.send_photo_text(bot, photo, text)
 
 
 async def run_leaders(bot, admin_id: str = None) -> int:
@@ -278,7 +279,8 @@ async def run_leaders(bot, admin_id: str = None) -> int:
         return 0
 
     header, body = formatter.fmt_leaders(all_periods)
-    ok = await telegram_sender.send_text(bot, f"{header}\n\n{body}")
+    photo = "assets/stubs/moex.jpg"
+    ok = await telegram_sender.send_photo_text(bot, photo, f"{header}\n\n{body}")
     if ok:
         await storage.increment_stats()
         return 1
