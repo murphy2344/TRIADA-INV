@@ -150,14 +150,41 @@ async def mark_as_published(news_id: str, title: str):
     # (storage.mark_published is called from pipeline separately)
 
 
-async def check_redis_connection() -> bool:
+async def check_redis_connection() -> tuple[bool, str]:
     """Проверяет соединение с Upstash Redis через PING.
-    Возвращает True если Redis доступен, False если нет или не настроен."""
+    Возвращает (True, "") если OK, (False, причина) если ошибка."""
     if not USE_REDIS:
-        return False
+        return False, "переменные UPSTASH_REDIS_REST_URL / TOKEN не заданы"
     try:
-        result = await _redis(["PING"])
-        return result == "PONG"
+        headers = {
+            "Authorization": f"Bearer {UPSTASH_TOKEN}",
+            "Content-Type": "application/json",
+        }
+        async with aiohttp.ClientSession() as s:
+            async with s.post(
+                UPSTASH_URL,
+                data=json.dumps(["PING"]),
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=8),
+            ) as r:
+                status = r.status
+                raw = await r.text()
+                logger.info(f"Redis PING → HTTP {status}: {raw[:200]}")
+                if status == 401:
+                    return False, f"HTTP 401 — неверный токен (UPSTASH_REDIS_REST_TOKEN)"
+                if status == 404:
+                    return False, f"HTTP 404 — неверный URL базы данных (UPSTASH_REDIS_REST_URL)"
+                if status != 200:
+                    return False, f"HTTP {status}: {raw[:120]}"
+                import json as _json
+                data = _json.loads(raw)
+                result = data.get("result")
+                if result == "PONG":
+                    return True, ""
+                return False, f"неожиданный ответ: {raw[:120]}"
+    except aiohttp.ClientConnectorError as e:
+        return False, f"нет соединения с хостом: {e}"
+    except asyncio.TimeoutError:
+        return False, "таймаут 8с — хост не отвечает"
     except Exception as e:
-        logger.error(f"Redis connection check failed: {e}")
-        return False
+        return False, f"{type(e).__name__}: {e}"

@@ -237,13 +237,13 @@ async def main():
                 sqlite_status = f"❌ SQLite — ОШИБКА: {e}"
 
             # 2. Upstash Redis
-            redis_ok = await dedup.check_redis_connection()
+            redis_ok, redis_error = await dedup.check_redis_connection()
             if redis_ok:
                 redis_status = "✅ Upstash Redis — OK (антидубль персистентный)"
-            elif dedup.USE_REDIS:
-                redis_status = "❌ Upstash Redis — недоступен (проверьте UPSTASH_REDIS_REST_URL и TOKEN на Render)"
-            else:
+            elif not dedup.USE_REDIS:
                 redis_status = "⚠️ Upstash Redis — не настроен (антидубль через SQLite, сбрасывается при рестарте)"
+            else:
+                redis_status = f"❌ Upstash Redis — ошибка: {redis_error}"
 
             # 3. Итоговое сообщение
             overall = "✅ Бот запущен и работает" if (sqlite_ok and redis_ok) else "⚠️ Бот запущен с предупреждениями"
