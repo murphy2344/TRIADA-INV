@@ -1,171 +1,86 @@
 """
-Лидеры роста/падения акций Мосбиржи — через официальный бесплатный
-MOEX ISS API (iss.moex.com), без ключа, без ограничений на такой объём
-запросов.
+    Лидеры роста/падения международного рынка (S&P 500 / NASDAQ) — через yfinance.
+    Максимум 1 российская компания в выборке (Сбербанк ADR).
+    """
+    import logging
+    import concurrent.futures
+    import yfinance as yf
 
-День — 1 запрос к текущему снимку доски TQBR (там уже готовое поле CHANGE).
-Неделя/месяц/год — текущий снимок + 1 исторический снимок на нужную дату
-назад (тоже одним запросом на весь список бумаг, не по одной).
-"""
-import logging
-import datetime
-import requests
+    logger = logging.getLogger(__name__)
 
-logger = logging.getLogger(__name__)
-
-BASE = "https://iss.moex.com/iss"
-BOARD = "TQBR"
-TIMEOUT = 15
-
-PERIOD_DAYS = {"week": 7, "month": 30, "year": 365}
-
-
-def _rows_to_dicts(block: dict) -> list[dict]:
-    """MOEX ISS отдаёт {"columns": [...], "data": [[...], ...]} —
-    превращаем в список словарей по колонкам."""
-    if not block:
-        return []
-    columns = block.get("columns", [])
-    data = block.get("data", [])
-    return [dict(zip(columns, row)) for row in data]
-
-
-def fetch_current_snapshot() -> dict:
-    """Текущие данные по всем акциям доски TQBR: тикер -> {name, last, change_pct, value}."""
-    url = f"{BASE}/engines/stock/markets/shares/boards/{BOARD}/securities.json"
-    params = {
-        "iss.meta": "off",
-        "securities.columns": "SECID,SHORTNAME",
-        "marketdata.columns": "SECID,LAST,CHANGE,VALTODAY",
-    }
-    try:
-        resp = requests.get(url, params=params, timeout=TIMEOUT)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as e:
-        logger.error(f"MOEX snapshot error: {e}")
-        return {}
-
-    names = {r["SECID"]: r.get("SHORTNAME", r["SECID"]) for r in _rows_to_dicts(data.get("securities"))}
-    result = {}
-    for r in _rows_to_dicts(data.get("marketdata")):
-        secid = r.get("SECID")
-        last = r.get("LAST")
-        if not secid or last is None:
-            continue
-        result[secid] = {
-            "name": names.get(secid, secid),
-            "last": last,
-            "change_pct": r.get("CHANGE"),
-            "value": r.get("VALTODAY") or 0,
-        }
-    return result
-
-
-def fetch_historical_close(date_str: str) -> dict:
-    """Цены закрытия на конкретную дату: тикер -> close. Пустой словарь,
-    если в этот день торгов не было (выходной/праздник) — вызывающий код
-    сам отвечает за поиск ближайшего торгового дня."""
-    url = f"{BASE}/history/engines/stock/markets/shares/boards/{BOARD}/securities.json"
-    params = {
-        "iss.meta": "off",
-        "date": date_str,
-        "history.columns": "SECID,CLOSE",
-    }
-    try:
-        resp = requests.get(url, params=params, timeout=TIMEOUT)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as e:
-        logger.error(f"MOEX history error ({date_str}): {e}")
-        return {}
-
-    result = {}
-    for r in _rows_to_dicts(data.get("history")):
-        secid = r.get("SECID")
-        close = r.get("CLOSE")
-        if secid and close is not None:
-            result[secid] = close
-    return result
-
-
-def _find_trading_day_close(target_date: datetime.date, max_lookback: int = 7) -> dict:
-    """Ищет ближайший ТОРГОВЫЙ день не позже target_date (на случай, если
-    попали на выходной/праздник) — идёт назад до max_lookback дней."""
-    for offset in range(max_lookback):
-        d = target_date - datetime.timedelta(days=offset)
-        closes = fetch_historical_close(d.isoformat())
-        if closes:
-            return closes
-    return {}
-
-
-def _split_gainers_losers(changes: list, top_n: int) -> tuple[list, list]:
-    """Строго разделяет по знаку изменения — растущая бумага никогда не
-    попадёт в список падения, даже если бумаг мало (top_n близко к общему
-    числу). Раньше эта функция брала просто 'верхние N' и 'нижние N', и при
-    малой выборке в 'падение' мог попасть актив с положительным изменением."""
-    positive = [c for c in changes if c["change_pct"] is not None and c["change_pct"] > 0]
-    negative = [c for c in changes if c["change_pct"] is not None and c["change_pct"] < 0]
-    positive.sort(key=lambda x: x["change_pct"], reverse=True)
-    negative.sort(key=lambda x: x["change_pct"])
-    return positive[:top_n], negative[:top_n]
-
-
-def _compute_period_leaders(current: dict, past_closes: dict, top_n: int) -> tuple[list, list]:
-    changes = []
-    for secid, info in current.items():
-        past = past_closes.get(secid)
-        if not past or past == 0:
-            continue
-        pct = (info["last"] - past) / past * 100
-        changes.append({"ticker": secid, "name": info["name"], "change_pct": pct})
-
-    return _split_gainers_losers(changes, top_n)
-
-
-def get_daily_leaders(top_n: int = 5) -> tuple[list, list]:
-    current = fetch_current_snapshot()
-    changes = [
-        {"ticker": secid, "name": info["name"], "change_pct": info["change_pct"]}
-        for secid, info in current.items()
-        if info.get("change_pct") is not None
+    # Международные blue chips (S&P 500 / NASDAQ) + 1 российская ADR
+    TICKERS = [
+      # Tech
+      "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA",
+      "AMD", "INTC", "NFLX", "ADBE", "CRM", "AVGO",
+      # Finance
+      "JPM", "GS", "MS", "BAC", "C", "V", "MA",
+      # Health / Consumer
+      "JNJ", "UNH", "LLY", "ABBV", "MRK", "PEP", "KO", "WMT", "PG",
+      "COST", "MCD", "HD",
+      # Energy / Industry
+      "XOM", "CVX", "BA", "TMO",
+      # Russian ADR (представитель РФ — максимум 1 компания попадёт в топ)
+      "SBRCY",
     ]
-    return _split_gainers_losers(changes, top_n)
+
+    DISPLAY_NAMES = {
+      "AAPL": "Apple", "MSFT": "Microsoft", "NVDA": "NVIDIA",
+      "GOOGL": "Alphabet", "AMZN": "Amazon", "META": "Meta",
+      "TSLA": "Tesla", "AMD": "AMD", "INTC": "Intel",
+      "NFLX": "Netflix", "ADBE": "Adobe", "CRM": "Salesforce", "AVGO": "Broadcom",
+      "JPM": "JPMorgan", "GS": "Goldman Sachs", "MS": "Morgan Stanley",
+      "BAC": "Bank of America", "C": "Citigroup", "V": "Visa", "MA": "Mastercard",
+      "JNJ": "Johnson & Johnson", "UNH": "UnitedHealth", "LLY": "Eli Lilly",
+      "ABBV": "AbbVie", "MRK": "Merck", "PEP": "PepsiCo", "KO": "Coca-Cola",
+      "WMT": "Walmart", "PG": "Procter & Gamble", "COST": "Costco",
+      "MCD": "McDonald's", "HD": "Home Depot",
+      "XOM": "Exxon Mobil", "CVX": "Chevron", "BA": "Boeing", "TMO": "Thermo Fisher",
+      "SBRCY": "Сбербанк ADR",
+    }
 
 
-def get_period_leaders(period: str, top_n: int = 5) -> tuple[list, list]:
-    """period: 'week' | 'month' | 'year'"""
-    days_back = PERIOD_DAYS.get(period)
-    if not days_back:
-        return [], []
+    def _get_change(ticker: str) -> dict | None:
+      try:
+          hist = yf.Ticker(ticker).history(period="5d", interval="1d")
+          if hist is None or len(hist) < 2:
+              return None
+          prev_close = float(hist["Close"].iloc[-2])
+          last = float(hist["Close"].iloc[-1])
+          if prev_close == 0:
+              return None
+          change_pct = (last - prev_close) / prev_close * 100
+          return {
+              "ticker": ticker,
+              "name": DISPLAY_NAMES.get(ticker, ticker),
+              "last": round(last, 2),
+              "change_pct": round(change_pct, 2),
+          }
+      except Exception as e:
+          logger.error(f"yfinance error ({ticker}): {e}")
+          return None
 
-    current = fetch_current_snapshot()
-    if not current:
-        return [], []
 
-    target_date = datetime.date.today() - datetime.timedelta(days=days_back)
-    past_closes = _find_trading_day_close(target_date)
-    if not past_closes:
-        logger.warning(f"MOEX: не удалось найти торговый день для периода {period}")
-        return [], []
+    def get_leaders(top_n: int = 5) -> dict:
+      """Возвращает {"gainers": [...], "losers": [...]}.
+      Каждый элемент: {ticker, name, last, change_pct}"""
+      results = []
+      with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
+          futures = [ex.submit(_get_change, t) for t in TICKERS]
+          for f in concurrent.futures.as_completed(futures):
+              res = f.result()
+              if res is not None:
+                  results.append(res)
 
-    return _compute_period_leaders(current, past_closes, top_n)
+      results.sort(key=lambda x: x["change_pct"], reverse=True)
+      gainers = [r for r in results if r["change_pct"] > 0][:top_n]
+      losers = list(reversed([r for r in results if r["change_pct"] < 0]))[:top_n]
+      return {"gainers": gainers, "losers": losers}
 
 
-def get_all_periods_leaders(top_n: int = 5) -> dict:
-    """Собирает лидеров по всем 4 периодам за минимум запросов (текущий
-    снимок переиспользуется для всех периодов, не запрашивается заново)."""
-    result = {}
-    day_g, day_l = get_daily_leaders(top_n)
-    result["day"] = (day_g, day_l)
-
-    current = fetch_current_snapshot()
-    for period, days_back in PERIOD_DAYS.items():
-        target_date = datetime.date.today() - datetime.timedelta(days=days_back)
-        past_closes = _find_trading_day_close(target_date)
-        if past_closes and current:
-            result[period] = _compute_period_leaders(current, past_closes, top_n)
-        else:
-            result[period] = ([], [])
-    return result
+    def get_all_periods_leaders(top_n: int = 5) -> dict:
+      """Обёртка для обратной совместимости с pipeline/formatter.
+      Возвращает {"day": (gainers, losers)} — формат, который ожидает fmt_leaders."""
+      data = get_leaders(top_n)
+      return {"day": (data["gainers"], data["losers"])}
+    
