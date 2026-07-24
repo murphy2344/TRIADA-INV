@@ -74,4 +74,41 @@ def build_scheduler(bot, admin_id: str) -> AsyncIOScheduler:
         args=[bot, admin_id], id="moex_leaders"
     )
 
+    # Пульс рынка (USD/RUB, IMOEX) — закреплённое сообщение, обновляется
+    # на месте каждые 15 минут, не спамит новыми постами
+    scheduler.add_job(
+        pipeline.update_market_pulse, "interval", minutes=15,
+        args=[bot, admin_id], id="market_pulse"
+    )
+
+    # Экономический календарь — недельный дайджест по понедельникам 09:00 МСК
+    scheduler.add_job(
+        pipeline.run_econ_calendar_weekly, "cron", day_of_week="mon", hour=9, minute=0,
+        args=[bot, admin_id], id="econ_calendar_weekly"
+    )
+    # Экономический календарь — проверка "сегодня" каждое утро 08:30 МСК
+    scheduler.add_job(
+        pipeline.run_econ_calendar_today, "cron", hour=8, minute=30,
+        args=[bot, admin_id], id="econ_calendar_today"
+    )
+
+    # Технические алерты (RSI, скользящие средние) — раз в час
+    scheduler.add_job(
+        pipeline.run_technical_alerts, "interval", hours=1,
+        args=[bot, admin_id], id="technical_alerts"
+    )
+
+    # Дайджест отчётностей компаний — раз в день, 09:30 МСК
+    scheduler.add_job(
+        pipeline.run_earnings_digest, "cron", hour=9, minute=30,
+        args=[bot, admin_id], id="earnings_digest"
+    )
+
+    # Тепловая карта секторов — раз в день, 23:30 МСК (после закрытия
+    # основной сессии US-рынков ~23:00 МСК)
+    scheduler.add_job(
+        pipeline.run_sector_heatmap, "cron", hour=23, minute=30,
+        args=[bot, admin_id], id="sector_heatmap"
+    )
+
     return scheduler

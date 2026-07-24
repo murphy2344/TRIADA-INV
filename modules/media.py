@@ -18,41 +18,94 @@ CATEGORY_LABELS = {
     "market":  "ФИНАНСОВЫЕ РЫНКИ",
 }
 
+# Индекс-пульс рынка для карточек без конкретного тикера (дайджесты) —
+# показываем реальный S&P 500 вместо пустого логотипа, ближе к Apple Stocks
+DIGEST_CATEGORIES = {"hourly", "morning", "evening", "weekly", "monthly"}
+DEFAULT_PULSE_TICKER = "^GSPC"
 
-def _generate_pillow_fallback(post_category: str = "market") -> bytes | None:
-    """Generate branded TRIADA INVESTING placeholder (1200x675 JPG) via Pillow."""
+
+def _generate_pillow_fallback(post_category: str = "market", ticker: str | None = None) -> bytes | None:
+    """Брендированная заглушка TRIADA INVESTING в стиле Apple Stocks:
+    тёмный фон, крупная цена/%, тонкий sparkline. Если передан тикер (или
+    категория — дайджест, тогда берём S&P 500 как пульс рынка) — рисуем
+    настоящий мини-график по реальным данным. Если данных нет вообще —
+    аккуратный минималистичный вариант без графика (просто лейбл)."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    sparkline = None
+    resolved_ticker = ticker
+    if not resolved_ticker and post_category in DIGEST_CATEGORIES:
+        resolved_ticker = DEFAULT_PULSE_TICKER
+
+    if resolved_ticker:
+        try:
+            from modules.charting import get_sparkline_data
+            sparkline = get_sparkline_data(resolved_ticker, period="5d")
+        except Exception as e:
+            logger.warning(f"Sparkline data unavailable for fallback card: {e}")
+
     try:
-        from PIL import Image, ImageDraw, ImageFont
-
-        img = Image.new("RGB", (1200, 675), color=(10, 10, 10))
+        img = Image.new("RGB", (1200, 675), color=(0, 0, 0))
         draw = ImageDraw.Draw(img)
 
-        cx, cy = 600, 280
-        size = 110
-        top = (cx, cy - size)
-        bl  = (cx - size, cy + size)
-        br  = (cx + size, cy + size)
-        for p1, p2 in [(top, bl), (bl, br), (br, top)]:
-            draw.line([p1, p2], fill=(255, 255, 255), width=3)
+        try:
+            font_ticker = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 46)
+            font_price  = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 64)
+            font_change = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 34)
+            font_label  = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 30)
+            font_small  = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
+        except Exception:
+            font_ticker = font_price = font_change = font_label = font_small = ImageFont.load_default()
 
         label = CATEGORY_LABELS.get(post_category, "ФИНАНСОВЫЕ РЫНКИ")
-        try:
-            font_big   = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
-            font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
-        except Exception:
-            font_big = font_small = ImageFont.load_default()
 
-        bbox = draw.textbbox((0, 0), label, font=font_big)
-        tw = bbox[2] - bbox[0]
-        draw.text((cx - tw // 2, cy + size + 40), label, fill=(220, 220, 220), font=font_big)
+        if sparkline and len(sparkline["values"]) >= 2:
+            values = sparkline["values"]
+            pct = sparkline["change_pct"]
+            last = sparkline["last"]
+            is_up = pct >= 0
+            color = (48, 209, 88) if is_up else (255, 69, 58)  # Apple Stocks green/red
+
+            # Заголовок: тикер сверху слева, категория — под ним мелко
+            draw.text((60, 50), sparkline["ticker"], fill=(255, 255, 255), font=font_ticker)
+            draw.text((60, 110), label, fill=(140, 140, 140), font=font_small)
+
+            # Крупная цена и % изменения
+            draw.text((60, 170), f"{last:,.2f}", fill=(255, 255, 255), font=font_price)
+            sign = "+" if pct >= 0 else ""
+            draw.text((60, 250), f"{sign}{pct:.2f}%", fill=color, font=font_change)
+
+            # Тонкий sparkline снизу карточки
+            chart_top, chart_bottom = 400, 620
+            chart_left, chart_right = 60, 1140
+            v_min, v_max = min(values), max(values)
+            v_range = (v_max - v_min) or 1
+            points = []
+            for i, v in enumerate(values):
+                x = chart_left + (chart_right - chart_left) * i / (len(values) - 1)
+                y = chart_bottom - (v - v_min) / v_range * (chart_bottom - chart_top)
+                points.append((x, y))
+            draw.line(points, fill=color, width=4, joint="curve")
+            # Лёгкая заливка под линией
+            fill_poly = points + [(chart_right, chart_bottom), (chart_left, chart_bottom)]
+            overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+            overlay_draw = ImageDraw.Draw(overlay)
+            overlay_draw.polygon(fill_poly, fill=color + (35,))
+            img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+            draw = ImageDraw.Draw(img)
+        else:
+            # Без данных — просто аккуратный минималистичный лейбл по центру
+            bbox = draw.textbbox((0, 0), label, font=font_label)
+            tw = bbox[2] - bbox[0]
+            draw.text(((1200 - tw) // 2, 320), label, fill=(220, 220, 220), font=font_label)
 
         wm = "TRIADA INVESTING"
         bbox2 = draw.textbbox((0, 0), wm, font=font_small)
         ww = bbox2[2] - bbox2[0]
-        draw.text((1200 - ww - 20, 675 - 34), wm, fill=(80, 80, 80), font=font_small)
+        draw.text((1200 - ww - 30, 675 - 44), wm, fill=(90, 90, 90), font=font_small)
 
         buf = io.BytesIO()
-        img.save(buf, "JPEG", quality=88)
+        img.save(buf, "JPEG", quality=90)
         buf.seek(0)
         return buf.getvalue()
     except Exception as e:
@@ -184,6 +237,7 @@ async def get_photo(
     subject_en: str | None = None,
     rss_image: str | None = None,
     post_category: str = "market",
+    ticker: str | None = None,
 ) -> bytes | str | None:
     """
     Priority per spec:
@@ -192,7 +246,7 @@ async def get_photo(
     3. Wikipedia page thumbnail (subject_en preferred)
     4. Google CSE (subject_en preferred)
     5. Pexels / Pixabay (if keys set)
-    6. Pillow-generated branded fallback
+    6. Pillow-generated branded fallback (с sparkline, если есть тикер)
     """
     # Step 1
     if rss_image and rss_image.startswith("http"):
@@ -234,4 +288,4 @@ async def get_photo(
 
     # Step 6
     logger.info(f"Media: Pillow fallback for '{search_query[:40]}'")
-    return _generate_pillow_fallback(post_category)
+    return _generate_pillow_fallback(post_category, ticker=ticker)

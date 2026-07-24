@@ -48,9 +48,6 @@ def resolve_ticker(raw: str) -> str | None:
     if not raw:
         return None
     lower = raw.lower().strip()
-    # Отклоняем "null", "none", "n/a" — AI иногда возвращает их как строку
-    if lower in ("null", "none", "n/a", "na", ""):
-        return None
     if lower in TICKER_ALIASES:
         return TICKER_ALIASES[lower]
     return raw.upper()
@@ -82,55 +79,45 @@ def _finviz_chart(ticker: str) -> bytes | None:
 
 
 def _yfinance_chart(ticker: str, period: str = "5d") -> bytes | None:
-    """Fallback: light-theme chart via yfinance + matplotlib."""
+    """Fallback (когда Finviz недоступен): свой график в стиле Apple Stocks —
+    тёмный фон, крупная цена/% сверху, тонкая area-заливка под линией."""
+    sparkline = get_sparkline_data(ticker, period)
+    if not sparkline:
+        return None
+
     try:
-        data = yf.download(
-            ticker, period=period, interval="1h",
-            progress=False, auto_adjust=True, multi_level_index=False
-        )
-        if data is None or data.empty or len(data) < 5:
-            logger.warning(f"yfinance: no data for {ticker}")
-            return None
+        values = sparkline["values"]
+        last = sparkline["last"]
+        pct = sparkline["change_pct"]
+        is_up = pct >= 0
+        color = "#30D158" if is_up else "#FF453A"  # цвета из Apple Stocks
 
-        close = data["Close"] if "Close" in data.columns else data.iloc[:, 0]
-        if hasattr(close, "columns"):
-            close = close.iloc[:, 0]
-        close = close.dropna()
-        if len(close) < 5:
-            return None
+        fig, ax = plt.subplots(figsize=(10, 5.6), dpi=150)
+        fig.patch.set_facecolor("#000000")
+        ax.set_facecolor("#000000")
 
-        fig, ax = plt.subplots(figsize=(10, 5))
-        fig.patch.set_facecolor("white")
-        ax.set_facecolor("#f8f9fa")
+        x = range(len(values))
+        ax.plot(x, values, color=color, linewidth=2.2, solid_capstyle="round")
+        ax.fill_between(x, values, min(values), alpha=0.15, color=color)
 
-        is_up = close.iloc[-1] >= close.iloc[0]
-        color = "#16a34a" if is_up else "#dc2626"
-        ax.plot(close.index, close.values, color=color, linewidth=2)
-        ax.fill_between(close.index, close.values, alpha=0.08, color=color)
+        ax.axis("off")  # Apple Stocks почти не показывает оси на превью-графике
 
-        pct = (close.iloc[-1] - close.iloc[0]) / close.iloc[0] * 100
         sign = "+" if pct >= 0 else ""
-        ax.set_title(f"{ticker}   {sign}{pct:.2f}%", color="#111111",
-                     fontsize=14, fontweight="bold", pad=12)
-        ax.tick_params(colors="#444444", labelsize=9)
-        for spine in ax.spines.values():
-            spine.set_color("#cccccc")
-        ax.xaxis.set_major_formatter(mdates.DateFormatter("%d.%m %H:%M"))
-        plt.xticks(rotation=25, ha='right', color="#444444")
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:,.2f}"))
-        ax.grid(True, color="#e5e7eb", linestyle="--", linewidth=0.6)
-        fig.text(0.99, 0.01, "TRIADA INVESTING", ha="right", va="bottom",
-                 fontsize=8, color="#aaaaaa")
-        plt.tight_layout()
+        fig.text(0.04, 0.92, ticker, color="#ffffff", fontsize=26, fontweight="bold", va="top")
+        fig.text(0.04, 0.78, f"{last:,.2f}", color="#ffffff", fontsize=34, fontweight="bold", va="top")
+        fig.text(0.04, 0.66, f"{sign}{pct:.2f}%", color=color, fontsize=20, fontweight="bold", va="top")
+        fig.text(0.97, 0.04, "TRIADA INVESTING", ha="right", va="bottom",
+                 fontsize=10, color="#555555")
+
+        plt.tight_layout(rect=[0, 0.02, 1, 0.98])
 
         buf = io.BytesIO()
         plt.savefig(buf, format="png", dpi=150, facecolor=fig.get_facecolor())
         buf.seek(0)
         plt.close(fig)
         return buf.getvalue()
-
     except Exception as e:
-        logger.error(f"yfinance chart error ({ticker}): {e}")
+        logger.error(f"yfinance Apple-style chart error ({ticker}): {e}")
         return None
 
 
@@ -148,6 +135,34 @@ def get_current_price(ticker_raw: str) -> float | None:
         return float(data["Close"].iloc[-1])
     except Exception as e:
         logger.error(f"get_current_price error ({ticker}): {e}")
+        return None
+
+
+def get_sparkline_data(ticker_raw: str, period: str = "5d") -> dict | None:
+    """Лёгкие данные для мини-графика (sparkline) в Apple-стиле: цены закрытия,
+    текущая цена, % изменения. Переиспользуется и в yfinance-fallback графике,
+    и в Pillow-заглушке (media.py) — единая точка получения данных."""
+    ticker = resolve_ticker(ticker_raw)
+    if not ticker:
+        return None
+    try:
+        data = yf.download(
+            ticker, period=period, interval="1h",
+            progress=False, auto_adjust=True, multi_level_index=False
+        )
+        if data is None or data.empty:
+            return None
+        close = data["Close"] if "Close" in data.columns else data.iloc[:, 0]
+        if hasattr(close, "columns"):
+            close = close.iloc[:, 0]
+        close = close.dropna()
+        if len(close) < 2:
+            return None
+        values = [float(v) for v in close.values]
+        pct = (values[-1] - values[0]) / values[0] * 100
+        return {"ticker": ticker, "values": values, "last": values[-1], "change_pct": pct}
+    except Exception as e:
+        logger.error(f"get_sparkline_data error ({ticker}): {e}")
         return None
 
 

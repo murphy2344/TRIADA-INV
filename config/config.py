@@ -16,6 +16,10 @@ GROQ_FALLBACK_MODEL = "llama-3.1-8b-instant"
 # Бесплатно, без карты: aistudio.google.com/apikey
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
+# FRED (Федеральный резервный банк Сент-Луиса) — экономический календарь.
+# Бесплатно, без карты, мгновенная регистрация: fredaccount.stlouisfed.org/apikeys
+FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
+
 PEXELS_API_KEY   = os.environ.get("PEXELS_API_KEY", "")
 PIXABAY_API_KEY  = os.environ.get("PIXABAY_API_KEY", "")
 GOOGLE_CSE_API_KEY = os.environ.get("GOOGLE_CSE_API_KEY", "")

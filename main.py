@@ -10,7 +10,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 from config.config import BOT_TOKEN, ADMIN_USERNAME, ADMIN_ID, CHANNEL_ID
-from modules import pipeline, storage, dedup
+from modules import pipeline, storage
 from modules.scheduler import build_scheduler
 from modules.telegram_sender import notify_admin
 
@@ -146,7 +146,6 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⏱ Аптайм: <b>{uptime}</b>\n"
         f"📰 Постов сегодня: <b>{stats['posts']}</b>\n"
         f"❌ Ошибок сегодня: <b>{stats['errors']}</b>\n"
-        f"🗄 Антидубль: <b>{dedup.get_dedup_mode()}</b>\n"
         f"{accuracy_line}\n\n"
         f"<b>Следующие задачи:</b>\n{next_str}"
     )
@@ -216,29 +215,6 @@ async def main():
 
     admin_id = str(ADMIN_ID) if ADMIN_ID else ""
     application.bot_data["admin_id"] = admin_id
-
-    # ── Проверка Upstash Redis при старте ────────────────────────────────────
-    redis_ok = await dedup.check_redis_connection()
-    if redis_ok:
-        logger.info("Upstash Redis: соединение OK ✅")
-        if admin_id:
-            await notify_admin(application.bot, admin_id,
-                "✅ Бот запущен.\n🗄 Антидубль: <b>Upstash Redis</b> — данные персистентны.")
-    else:
-        logger.error(
-            "❌ Upstash Redis недоступен или не настроен! "
-            "Посты будут повторяться при рестарте. "
-            "Задайте UPSTASH_REDIS_REST_URL и UPSTASH_REDIS_REST_TOKEN на Render."
-        )
-        if admin_id:
-            await notify_admin(application.bot, admin_id,
-                "⚠️ <b>Бот запущен, но антидубль НЕ работает персистентно!</b>\n\n"
-                "🗄 Режим: SQLite (сбрасывается при рестарте)\n\n"
-                "Чтобы исправить — зайдите в Render → ваш сервис → <b>Environment</b> "
-                "и добавьте:\n"
-                "• <code>UPSTASH_REDIS_REST_URL</code>\n"
-                "• <code>UPSTASH_REDIS_REST_TOKEN</code>\n\n"
-                "Получить бесплатно: upstash.com → Redis → Create Database → REST API")
 
     scheduler = build_scheduler(application.bot, admin_id)
     scheduler.start()

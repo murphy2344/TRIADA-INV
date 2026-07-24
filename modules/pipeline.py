@@ -1,29 +1,14 @@
+import asyncio
 import logging
-import os
 from datetime import datetime
 import pytz
 
 from modules import news_sources, ai_analyzer, charting, media, formatter
-from modules import dedup, storage, telegram_sender, critic, moex_leaders
+from modules import dedup, storage, telegram_sender, critic, moex_leaders, market_pulse, econ_calendar, earnings, sector_heatmap
 from config.config import ADMIN_ID
 
 logger = logging.getLogger(__name__)
 MSK = pytz.timezone("Europe/Moscow")
-
-# Папка с заглушками (фото для расписания: часовой, утренний, вечерний и т.д.)
-# BREAKING-посты НЕ используют заглушки — там AI ищет фото по теме + Finviz-графики.
-_STUBS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "stubs")
-
-
-def _stub(name: str) -> bytes | None:
-    """Читает файл заглушки assets/stubs/{name}.jpg и возвращает bytes."""
-    path = os.path.join(_STUBS_DIR, f"{name}.jpg")
-    try:
-        with open(path, "rb") as f:
-            return f.read()
-    except FileNotFoundError:
-        logger.warning(f"Stub not found: {path}")
-        return None
 
 
 def _is_relevant(analysis: dict) -> bool:
@@ -58,6 +43,7 @@ async def _get_media(
         subject_en=subject_en,
         rss_image=rss_image,
         post_category=post_category,
+        ticker=ticker,
     )
     return photo
 
@@ -115,7 +101,16 @@ async def run_breaking(bot, admin_id: str = None):
                 analysis["_critic"] = critic_result
 
         media_obj = await _get_media(analysis, rss_image=item.get("rss_image"), post_category="urgent")
-        caption   = formatter.fmt_breaking(analysis, item["source"], item["url"])
+
+        chip_data = None
+        ticker = analysis.get("ticker")
+        if ticker:
+            try:
+                chip_data = await asyncio.to_thread(charting.get_sparkline_data, ticker, "1d")
+            except Exception as e:
+                logger.warning(f"Chip data fetch failed for {ticker}: {e}")
+
+        caption = formatter.fmt_breaking(analysis, item["source"], item["url"], chip_data)
 
         ok = await telegram_sender.send_photo_text(bot, media_obj, caption)
         if ok:
@@ -170,7 +165,7 @@ async def run_hourly(bot, admin_id: str = None):
     now    = datetime.now(MSK)
     header = formatter.fmt_hourly_header(now)
     body   = formatter.fmt_hourly_body(analyses)
-    photo  = _stub("hourly")
+    photo  = await media.get_photo("financial markets trading floor", post_category="hourly")
     ok     = await telegram_sender.send_two_messages(bot, photo, header, body)
 
     if ok:
@@ -197,7 +192,7 @@ async def run_morning(bot, admin_id: str = None):
 
     analyses       = ai_analyzer.analyze_batch(fresh, "MORNING") if fresh else []
     header, body   = formatter.fmt_morning(analyses, date_str, fng)
-    photo          = _stub("morning")
+    photo          = await media.get_photo("global financial markets morning", post_category="morning")
     ok             = await telegram_sender.send_two_messages(bot, photo, header, body)
 
     if ok:
@@ -222,7 +217,7 @@ async def run_evening(bot, admin_id: str = None):
 
     analyses     = ai_analyzer.analyze_batch(fresh, "EVENING") if fresh else []
     header, body = formatter.fmt_evening(analyses, date_str, fng)
-    photo        = _stub("evening")
+    photo        = await media.get_photo("stock market closing bell evening", post_category="evening")
     ok           = await telegram_sender.send_two_messages(bot, photo, header, body)
 
     if ok:
@@ -243,7 +238,7 @@ async def run_weekly(bot, admin_id: str = None):
     fng       = await _get_fear_greed()
     accuracy  = await storage.get_accuracy_stats(days=7)
     header, body = formatter.fmt_weekly(analyses, fng, accuracy)
-    photo     = _stub("weekly")
+    photo     = await media.get_photo("weekly financial markets summary", post_category="weekly")
     ok        = await telegram_sender.send_two_messages(bot, photo, header, body)
     if ok:
         await storage.increment_stats()
@@ -255,7 +250,7 @@ async def run_monthly(bot, admin_id: str = None):
     news_list = news_sources.fetch_news(limit_per_feed=6)
     analyses  = ai_analyzer.analyze_batch(news_list[:6], "MONTHLY") if news_list else []
     header, body = formatter.fmt_monthly(analyses)
-    photo     = _stub("monthly")
+    photo     = await media.get_photo("monthly financial market review", post_category="monthly")
     ok        = await telegram_sender.send_two_messages(bot, photo, header, body)
     if ok:
         await storage.increment_stats()
@@ -264,16 +259,14 @@ async def run_monthly(bot, admin_id: str = None):
 
 
 async def run_exchange_open(bot, exchange: str, index: str):
-    now   = datetime.now(MSK)
-    text  = formatter.fmt_exchange_open(exchange, index, now)
-    photo = _stub("exchange")
-    await telegram_sender.send_photo_text(bot, photo, text)
+    now  = datetime.now(MSK)
+    text = formatter.fmt_exchange_open(exchange, index, now)
+    await telegram_sender.send_text(bot, text)
 
 
 async def run_leaders(bot, admin_id: str = None) -> int:
     """Лидеры роста/падения MOEX по всем 4 периодам. Синхронный сетевой код
     (requests) выполняется в отдельном потоке, чтобы не блокировать event loop."""
-    import asyncio
     try:
         all_periods = await asyncio.to_thread(moex_leaders.get_all_periods_leaders, 5)
     except Exception as e:
@@ -285,12 +278,151 @@ async def run_leaders(bot, admin_id: str = None) -> int:
         return 0
 
     header, body = formatter.fmt_leaders(all_periods)
-    photo = _stub("moex")
-    ok = await telegram_sender.send_two_messages(bot, photo, header, body)
+    ok = await telegram_sender.send_text(bot, f"{header}\n\n{body}")
     if ok:
         await storage.increment_stats()
         return 1
     return 0
+
+
+async def update_market_pulse(bot, admin_id: str = None):
+    """Обновляет закреплённое сообщение с курсом USD/RUB и IMOEX. Вызывается
+    по расписанию (см. scheduler.py) — редактирует существующее сообщение
+    вместо создания нового поста при каждом обновлении."""
+    try:
+        text = await asyncio.to_thread(market_pulse.build_pulse_text)
+        current_id = await storage.get_meta("pulse_message_id")
+        new_id = await telegram_sender.update_pinned_message(bot, text, current_id)
+        if new_id and new_id != current_id:
+            await storage.set_meta("pulse_message_id", new_id)
+        return bool(new_id)
+    except Exception as e:
+        logger.error(f"update_market_pulse error: {e}")
+        if admin_id:
+            await telegram_sender.notify_admin(bot, admin_id, f"❌ Не удалось обновить пульс рынка: {e}")
+        return False
+
+
+async def run_sector_heatmap(bot, admin_id: str = None) -> int:
+    try:
+        changes = await asyncio.to_thread(sector_heatmap.fetch_sector_changes)
+        if not changes:
+            return 0
+        text = formatter.fmt_sector_heatmap(changes, sector_heatmap.SECTORS)
+        image = await asyncio.to_thread(sector_heatmap.generate_heatmap_image, changes)
+        ok = await telegram_sender.send_photo_text(bot, image, text)
+        if ok:
+            await storage.increment_stats()
+            return 1
+        return 0
+    except Exception as e:
+        logger.error(f"run_sector_heatmap error: {e}")
+        if admin_id:
+            await telegram_sender.notify_admin(bot, admin_id, f"❌ Тепловая карта секторов: {e}")
+        return 0
+
+
+async def run_earnings_digest(bot, admin_id: str = None) -> int:
+    posted = 0
+    try:
+        upcoming = await asyncio.to_thread(earnings.check_upcoming, 3)
+        text_upcoming = formatter.fmt_earnings_upcoming(upcoming)
+        if text_upcoming:
+            if await telegram_sender.send_text(bot, text_upcoming):
+                await storage.increment_stats()
+                posted += 1
+
+        recent = await asyncio.to_thread(earnings.check_recent_results, 2)
+        # антидубль: не публиковать повторно тот же отчёт компании
+        new_recent = []
+        for r in recent:
+            key = f"earnings:{r['ticker']}:{r['date'].date().isoformat()}"
+            if not await storage.get_meta(key):
+                new_recent.append(r)
+                await storage.set_meta(key, "posted")
+        text_recent = formatter.fmt_earnings_recent(new_recent)
+        if text_recent:
+            if await telegram_sender.send_text(bot, text_recent):
+                await storage.increment_stats()
+                posted += 1
+
+        return posted
+    except Exception as e:
+        logger.error(f"run_earnings_digest error: {e}")
+        if admin_id:
+            await telegram_sender.notify_admin(bot, admin_id, f"❌ Дайджест отчётностей: {e}")
+        return posted
+
+
+async def run_technical_alerts(bot, admin_id: str = None) -> int:
+    """Проверяет watchlist на технические сигналы (RSI, скользящие средние).
+    Не спамит одним и тем же сигналом чаще раза в 24 часа на тикер+сигнал."""
+    import modules.technical_alerts as technical_alerts
+
+    posted = 0
+    try:
+        await storage.clear_stale_alerts(cooldown_hours=24)
+    except Exception as e:
+        logger.error(f"clear_stale_alerts error: {e}")
+
+    for ticker in technical_alerts.WATCHLIST:
+        try:
+            info = await asyncio.to_thread(technical_alerts.analyze_ticker, ticker)
+            signals = technical_alerts.detect_signals(info)
+            new_signals = []
+            for s in signals:
+                if not await storage.was_alerted_recently(ticker, s["type"]):
+                    new_signals.append(s)
+                    await storage.mark_alerted(ticker, s["type"])
+            if not new_signals:
+                continue
+
+            text = formatter.fmt_technical_alert(ticker, new_signals)
+            ok = await telegram_sender.send_text(bot, text)
+            if ok:
+                await storage.increment_stats()
+                posted += 1
+        except Exception as e:
+            logger.error(f"run_technical_alerts error ({ticker}): {e}")
+            continue
+
+    return posted
+
+
+async def run_econ_calendar_weekly(bot, admin_id: str = None) -> int:
+    try:
+        releases = await asyncio.to_thread(econ_calendar.fetch_upcoming, 7)
+        text = formatter.fmt_econ_calendar_weekly(releases)
+        if not text:
+            return 0
+        ok = await telegram_sender.send_text(bot, text)
+        if ok:
+            await storage.increment_stats()
+            return 1
+        return 0
+    except Exception as e:
+        logger.error(f"run_econ_calendar_weekly error: {e}")
+        if admin_id:
+            await telegram_sender.notify_admin(bot, admin_id, f"❌ Экономкалендарь (неделя): {e}")
+        return 0
+
+
+async def run_econ_calendar_today(bot, admin_id: str = None) -> int:
+    try:
+        releases = await asyncio.to_thread(econ_calendar.get_today_releases)
+        text = formatter.fmt_econ_calendar_today(releases)
+        if not text:
+            return 0
+        ok = await telegram_sender.send_text(bot, text)
+        if ok:
+            await storage.increment_stats()
+            return 1
+        return 0
+    except Exception as e:
+        logger.error(f"run_econ_calendar_today error: {e}")
+        if admin_id:
+            await telegram_sender.notify_admin(bot, admin_id, f"❌ Экономкалендарь (сегодня): {e}")
+        return 0
 
 
 async def check_recommendations(bot=None, admin_id: str = None):

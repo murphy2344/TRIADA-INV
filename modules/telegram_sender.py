@@ -52,3 +52,29 @@ async def notify_admin(bot: Bot, admin_id: str, message: str):
         await bot.send_message(chat_id=admin_id, text=message, parse_mode=ParseMode.HTML)
     except Exception as e:
         logger.error(f"Admin notify error: {e}")
+
+
+async def update_pinned_message(bot: Bot, text: str, message_id: str | None, chat_id: str = None) -> str | None:
+    """Обновляет закреплённое сообщение 'Пульс рынка' на месте, не создавая
+    новый пост каждый раз. Если message_id ещё нет или редактирование не
+    удалось (сообщение удалено вручную и т.п.) — создаёт новое и закрепляет.
+    Возвращает актуальный message_id — вызывающий код должен сохранить его
+    (см. modules.storage.set_meta) для следующего обновления."""
+    cid = chat_id or CHANNEL_ID
+
+    if message_id:
+        try:
+            await bot.edit_message_text(
+                chat_id=cid, message_id=int(message_id), text=text, parse_mode=ParseMode.HTML
+            )
+            return message_id
+        except TelegramError as e:
+            logger.warning(f"Не удалось отредактировать закреплённое сообщение, создаю новое: {e}")
+
+    try:
+        msg = await bot.send_message(chat_id=cid, text=text, parse_mode=ParseMode.HTML)
+        await bot.pin_chat_message(chat_id=cid, message_id=msg.message_id, disable_notification=True)
+        return str(msg.message_id)
+    except TelegramError as e:
+        logger.error(f"Не удалось создать/закрепить сообщение пульса рынка: {e}")
+        return None

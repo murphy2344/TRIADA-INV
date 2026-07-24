@@ -40,6 +40,12 @@ async def init_db():
                 price_after REAL
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS bot_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
         await db.commit()
     logger.info("Database initialized")
 
@@ -154,3 +160,56 @@ async def get_accuracy_stats(days: int = 7) -> dict:
             correct = row[1] or 0
             accuracy = round(correct / total * 100) if total else None
             return {"total": total, "correct": correct, "accuracy_pct": accuracy}
+
+
+async def get_meta(key: str) -> str | None:
+    """Универсальное key-value хранилище для мелких значений (например,
+    ID закреплённого сообщения с пульсом рынка)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT value FROM bot_meta WHERE key = ?", (key,)) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else None
+
+
+async def set_meta(key: str, value: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO bot_meta (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+        await db.commit()
+
+
+async def was_alerted_recently(ticker: str, signal_type: str, cooldown_hours: int = 24) -> bool:
+    """Проверка антиспама: не повторять один и тот же технический сигнал
+    по тому же тикеру чаще, чем раз в cooldown_hours."""
+    key = f"ta_alert:{ticker}:{signal_type}"
+    value = await get_meta(key)
+    return value is not None  # bot_meta не хранит TTL сам по себе — см. ниже
+
+
+async def mark_alerted(ticker: str, signal_type: str):
+    key = f"ta_alert:{ticker}:{signal_type}"
+    import datetime
+    await set_meta(key, datetime.datetime.utcnow().isoformat())
+
+
+async def clear_stale_alerts(cooldown_hours: int = 24):
+    """Чистит записи об алертах старше cooldown_hours — вызывать периодически,
+    иначе was_alerted_recently будет молчать вечно (bot_meta без TTL)."""
+    import datetime
+    cutoff = datetime.datetime.utcnow() - datetime.timedelta(hours=cooldown_hours)
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT key, value FROM bot_meta WHERE key LIKE 'ta_alert:%'"
+        ) as cursor:
+            rows = await cursor.fetchall()
+        for key, value in rows:
+            try:
+                ts = datetime.datetime.fromisoformat(value)
+                if ts < cutoff:
+                    await db.execute("DELETE FROM bot_meta WHERE key = ?", (key,))
+            except Exception:
+                continue
+        await db.commit()
