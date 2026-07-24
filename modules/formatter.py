@@ -81,7 +81,8 @@ def fmt_breaking(analysis: dict, source: str, url: str, chip_data: dict | None =
         f"<b>Возможный сценарий:</b>\n{_e(analysis.get('scenario', ''))}\n\n"
         f"<b>Рекомендация:</b>\n{_rec(analysis)}"
         f"</blockquote>\n\n"
-        f"Источник: {_e(source)} • <a href='{url}'>читать</a>"
+        f"Источник: {_e(source)} • <a href='{url}'>читать</a>\n\n"
+        f"#Срочно #Рынок #Инвестиции"
     )
 
 
@@ -94,7 +95,8 @@ def fmt_hourly_header(now: datetime = None) -> str:
     return (
         f"<b>НОВОСТИ ЗА ЧАС</b>\n\n"
         f"<b>Новости за {start}–{end} МСК</b>\n"
-        f"Главные события последнего часа на финансовых рынках."
+        f"Главные события последнего часа на финансовых рынках.\n\n"
+        f"#ДайджестЧас #Рынок #Инвестиции"
     )
 
 
@@ -120,6 +122,7 @@ def fmt_morning(analyses: list, date_str: str, fng: str = "") -> tuple[str, str]
     header = f"<b>ГЛАВНЫЕ СОБЫТИЯ НОЧИ | {date_str} | Москва</b>"
     if fng:
         header += f"\n\n{fng}"
+    header += "\n\n#УтренниОбзор #Рынок #Инвестиции"
     body = "<blockquote expandable>"
     for a in analyses[:4]:
         body += (
@@ -135,6 +138,7 @@ def fmt_evening(analyses: list, date_str: str, fng: str = "") -> tuple[str, str]
     header = f"<b>ИТОГИ ДНЯ | {date_str} | Москва</b>"
     if fng:
         header += f"\n\n{fng}"
+    header += "\n\n#ИтогиДня #Рынок #Инвестиции"
     body = "<blockquote expandable>"
     for a in analyses[:4]:
         body += (
@@ -149,7 +153,7 @@ def fmt_evening(analyses: list, date_str: str, fng: str = "") -> tuple[str, str]
 
 
 def fmt_weekly(analyses: list, fng: str = "", accuracy: dict | None = None) -> tuple[str, str]:
-    header = "<b>ИТОГИ НЕДЕЛИ | РЫНОК</b>"
+    header = "<b>ИТОГИ НЕДЕЛИ | РЫНОК</b>\n\n#ИтогиНедели #Рынок #Инвестиции"
     body = "<blockquote expandable>"
     for a in analyses[:5]:
         body += (
@@ -172,7 +176,7 @@ PERIOD_LABELS = {"day": "За день", "week": "За неделю", "month": "
 
 def fmt_leaders(all_periods: dict) -> tuple[str, str]:
     """all_periods: {"day": (gainers, losers), "week": (...), "month": (...), "year": (...)}"""
-    header = "<b>ЛИДЕРЫ РОСТА И ПАДЕНИЯ | МОСБИРЖА</b>"
+    header = "<b>ЛИДЕРЫ РОСТА И ПАДЕНИЯ | МОСБИРЖА</b>\n\n#MOEX #ЛидерыРынка #Инвестиции"
     body = "<blockquote expandable>"
 
     any_data = False
@@ -200,7 +204,7 @@ def fmt_leaders(all_periods: dict) -> tuple[str, str]:
 
 
 def fmt_monthly(analyses: list) -> tuple[str, str]:
-    header = "<b>ИТОГИ МЕСЯЦА</b>"
+    header = "<b>ИТОГИ МЕСЯЦА</b>\n\n#ИтогиМесяца #Рынок #Инвестиции"
     body = "<blockquote expandable><b>Главные макрособытия:</b>\n\n"
     for a in analyses[:6]:
         body += (
@@ -223,7 +227,8 @@ def fmt_technical_alert(ticker: str, signals: list) -> str:
     lines = [f"• {_e(s['text'])}" for s in signals]
     return (
         f"<b>ТЕХНИЧЕСКИЙ СИГНАЛ — {_e(ticker)}</b>\n\n" + "\n".join(lines) +
-        "\n\n<i>Не является торговой рекомендацией — технический индикатор к сведению.</i>"
+        "\n\n<i>Не является торговой рекомендацией — технический индикатор к сведению.</i>\n\n"
+        f"#ТехАлерт #{_e(ticker).replace('-', '')} #Инвестиции"
     )
 
 
@@ -231,7 +236,10 @@ def fmt_exchange_open(exchange: str, index: str, now: datetime = None) -> str:
     if not now:
         now = datetime.now(MSK)
     time_str = now.strftime("%H:%M МСК")
-    return f"Открылась торговая сессия: <b>{_e(exchange)}</b> ({_e(index)}) — {time_str}"
+    return (
+        f"Открылась торговая сессия: <b>{_e(exchange)}</b> ({_e(index)}) — {time_str}\n\n"
+        f"#Биржа #Открытие #Рынок"
+    )
 
 
 def fmt_econ_calendar_weekly(releases: list) -> str:
@@ -239,7 +247,8 @@ def fmt_econ_calendar_weekly(releases: list) -> str:
         return ""
     lines = [f"• {_e(r['name'])} — <code>{r['date'].strftime('%d.%m')}</code>" for r in releases]
     return (
-        "<b>ГЛАВНЫЕ ЭКОНОМИЧЕСКИЕ СОБЫТИЯ НЕДЕЛИ</b>\n\n" + "\n".join(lines)
+        "<b>ГЛАВНЫЕ ЭКОНОМИЧЕСКИЕ СОБЫТИЯ НЕДЕЛИ</b>\n\n" + "\n".join(lines) +
+        "\n\n#ЭкономКалендарь #Макро #Инвестиции"
     )
 
 
@@ -247,7 +256,7 @@ def fmt_earnings_upcoming(items: list) -> str:
     if not items:
         return ""
     lines = [f"• <b>{_e(i['ticker'])}</b> — <code>{i['date'].strftime('%d.%m')}</code>" for i in items]
-    return "<b>СКОРО ОТЧЁТНОСТЬ</b>\n\n" + "\n".join(lines)
+    return "<b>СКОРО ОТЧЁТНОСТЬ</b>\n\n" + "\n".join(lines) + "\n\n#Отчетность #Акции #Инвестиции"
 
 
 def fmt_earnings_recent(items: list) -> str:
@@ -265,7 +274,7 @@ def fmt_earnings_recent(items: list) -> str:
             f"• <b>{_e(i['ticker'])}</b>: факт <code>{rep_str}</code> "
             f"vs прогноз <code>{est_str}</code>{surprise_str}"
         )
-    return "<b>ОТЧЁТНОСТЬ: ФАКТ ПРОТИВ ПРОГНОЗА</b>\n\n" + "\n".join(lines)
+    return "<b>ОТЧЁТНОСТЬ: ФАКТ ПРОТИВ ПРОГНОЗА</b>\n\n" + "\n".join(lines) + "\n\n#Отчетность #Акции #Инвестиции"
 
 
 def fmt_sector_heatmap(changes: dict, sectors_labels: dict) -> str:
@@ -277,7 +286,7 @@ def fmt_sector_heatmap(changes: dict, sectors_labels: dict) -> str:
         name = sectors_labels.get(etf, etf)
         sign = "+" if pct >= 0 else ""
         lines.append(f"• {_e(name)}: <code>{sign}{pct:.2f}%</code>")
-    return "<b>ТЕПЛОВАЯ КАРТА СЕКТОРОВ</b>\n\n" + "\n".join(lines)
+    return "<b>ТЕПЛОВАЯ КАРТА СЕКТОРОВ</b>\n\n" + "\n".join(lines) + "\n\n#Секторы #США #Инвестиции"
 
 
 def fmt_econ_calendar_today(releases: list) -> str:
@@ -286,5 +295,6 @@ def fmt_econ_calendar_today(releases: list) -> str:
     lines = [f"• {_e(r['name'])}" for r in releases]
     return (
         "<b>СЕГОДНЯ — ВАЖНЫЕ ЭКОНОМИЧЕСКИЕ ДАННЫЕ</b>\n\n" + "\n".join(lines) +
-        "\n\nОжидается повышенная волатильность."
+        "\n\nОжидается повышенная волатильность.\n\n"
+        "#ЭкономКалендарь #Макро #Волатильность"
     )
