@@ -148,3 +148,16 @@ async def mark_as_published(news_id: str, title: str):
         await _redis_mark(news_id, title)
     # Always also mark in SQLite as secondary record
     # (storage.mark_published is called from pipeline separately)
+
+
+async def check_redis_connection() -> bool:
+    """Проверяет соединение с Upstash Redis через PING.
+    Возвращает True если Redis доступен, False если нет или не настроен."""
+    if not USE_REDIS:
+        return False
+    try:
+        result = await _redis(["PING"])
+        return result == "PONG"
+    except Exception as e:
+        logger.error(f"Redis connection check failed: {e}")
+        return False

@@ -10,7 +10,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 from config.config import BOT_TOKEN, ADMIN_USERNAME, ADMIN_ID, CHANNEL_ID
-from modules import pipeline, storage
+from modules import pipeline, storage, dedup
 from modules.scheduler import build_scheduler
 from modules.telegram_sender import notify_admin
 
@@ -220,14 +220,55 @@ async def main():
     scheduler.start()
     logger.info("Scheduler started with all jobs")
 
+    # ── Диагностика баз данных при старте ────────────────────────────────────
+    # Проверяем SQLite и Upstash Redis, отправляем отчёт в личку админу
     async with application:
         await application.initialize()
         await application.start()
+
+        if admin_id:
+            # 1. SQLite
+            sqlite_ok = False
+            try:
+                stats = await storage.get_today_stats()
+                sqlite_ok = True
+                sqlite_status = "✅ SQLite — OK (данные сохраняются локально)"
+            except Exception as e:
+                sqlite_status = f"❌ SQLite — ОШИБКА: {e}"
+
+            # 2. Upstash Redis
+            redis_ok = await dedup.check_redis_connection()
+            if redis_ok:
+                redis_status = "✅ Upstash Redis — OK (антидубль персистентный)"
+            elif dedup.USE_REDIS:
+                redis_status = "❌ Upstash Redis — недоступен (проверьте UPSTASH_REDIS_REST_URL и TOKEN на Render)"
+            else:
+                redis_status = "⚠️ Upstash Redis — не настроен (антидубль через SQLite, сбрасывается при рестарте)"
+
+            # 3. Итоговое сообщение
+            overall = "✅ Бот запущен и работает" if (sqlite_ok and redis_ok) else "⚠️ Бот запущен с предупреждениями"
+            msg = (
+                f"🤖 <b>TRIADA INVESTING Bot — старт</b>\n\n"
+                f"{overall}\n\n"
+                f"<b>Базы данных:</b>\n"
+                f"{sqlite_status}\n"
+                f"{redis_status}\n\n"
+                f"<b>Новые модули активны:</b>\n"
+                f"• Пульс рынка (каждые 15 мин)\n"
+                f"• Экономический календарь FRED\n"
+                f"• Технические алерты RSI/SMA\n"
+                f"• Дайджест отчётностей компаний\n"
+                f"• Тепловая карта секторов"
+            )
+            await notify_admin(application.bot, admin_id, msg)
+            logger.info(f"Startup diagnostic sent to admin. SQLite={sqlite_ok}, Redis={redis_ok}")
+
         if application.updater:
             await application.updater.start_polling(drop_pending_updates=True)
         logger.info("Bot polling started — TRIADA INVESTING is live")
         while True:
             await asyncio.sleep(1)
+
 
 
 if __name__ == "__main__":
