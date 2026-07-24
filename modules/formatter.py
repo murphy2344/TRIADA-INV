@@ -39,16 +39,15 @@ def _rec(a: dict) -> str:
         return base
 
     if critic_result.get("agree"):
-        return f"{base}\n\n<i>Проверено вторым мнением (Gemini) — согласен.</i>"
+        return base
 
-    critic_rec = REC_MAP.get(
-        critic_result.get("critic_recommendation", ""),
-        critic_result.get("critic_recommendation", ""),
-    )
+    # Критик не согласен — показываем без упоминания AI
     critic_note = _e(critic_result.get("critic_note", ""))
+    if not critic_note:
+        return base
     return (
         f"{base}\n\n"
-        f"<i>Альтернативное мнение (Gemini): {critic_rec} — {critic_note}</i>"
+        f"<b>ОДНАКО</b> — {critic_note}"
     )
 
 
