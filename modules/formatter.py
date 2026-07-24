@@ -176,7 +176,7 @@ PERIOD_LABELS = {"day": "За день", "week": "За неделю", "month": "
 
 def fmt_leaders(all_periods: dict) -> tuple[str, str]:
     """all_periods: {"day": (gainers, losers), "week": (...), "month": (...), "year": (...)}"""
-    header = "<b>ЛИДЕРЫ РОСТА И ПАДЕНИЯ | МОСБИРЖА</b>\n\n#MOEX #ЛидерыРынка #Инвестиции"
+    header = "<b>ЛИДЕРЫ РОСТА И ПАДЕНИЯ | МИРОВОЙ РЫНОК</b>\n\n#МировойРынок #ЛидерыРынка #Инвестиции"
     body = "<blockquote expandable>"
 
     any_data = False
@@ -199,7 +199,7 @@ def fmt_leaders(all_periods: dict) -> tuple[str, str]:
     if not any_data:
         body += "Нет данных за выбранные периоды (возможно, выходной день на бирже)."
 
-    body += "</blockquote>\nИсточник: MOEX ISS"
+    body += "</blockquote>\nИсточник: Yahoo Finance"
     return header, body
 
 
