@@ -103,7 +103,7 @@ async def run_breaking(bot, admin_id: str = None):
         media_obj = await _get_media(analysis, rss_image=item.get("rss_image"), post_category="urgent")
         # Если ни RSS-фото, ни Wikimedia/CSE/Pexels не нашли ничего — используем стаб
         if media_obj is None:
-            media_obj = "assets/stubs/hourly.jpg"
+            media_obj = "assets/stubs/breaking.jpg"
 
         chip_data = None
         ticker = analysis.get("ticker")
