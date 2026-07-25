@@ -1,16 +1,20 @@
 """
-Пульс рынка для закреплённого сообщения: курс USD/RUB и индекс IMOEX,
-через официальный бесплатный MOEX ISS API — та же инфраструктура, что и
-modules/moex_leaders.py, ключ не нужен.
+Пульс рынка для закреплённого сообщения.
+
+USD/RUB — через Yahoo Finance (yfinance, USDRUB=X): даёт актуальный курс
+в любое время суток, а не только во время торгов на MOEX.
+
+IMOEX — через официальный бесплатный MOEX ISS API: единственный источник
+индекса Мосбиржи в реальном времени, ключ не нужен.
 """
 import logging
 import datetime
 import requests
+import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
 TIMEOUT = 10
-USD_RUB_URL = "https://iss.moex.com/iss/engines/currency/markets/selt/boards/CETS/securities/USD000UTSTOM.json"
 IMOEX_URL = "https://iss.moex.com/iss/engines/stock/markets/index/boards/SNDX/securities/IMOEX.json"
 
 
@@ -25,21 +29,21 @@ def _first_row(block: dict) -> dict | None:
 
 
 def fetch_usd_rub() -> float | None:
+    """Yahoo Finance USDRUB=X — актуальный курс вне зависимости от расписания MOEX."""
     try:
-        resp = requests.get(
-            USD_RUB_URL,
-            params={"iss.meta": "off", "marketdata.columns": "SECID,LAST"},
-            timeout=TIMEOUT,
-        )
-        resp.raise_for_status()
-        row = _first_row(resp.json().get("marketdata"))
-        return row.get("LAST") if row else None
+        hist = yf.Ticker("USDRUB=X").history(period="1d", interval="5m")
+        if hist is not None and not hist.empty:
+            price = float(hist["Close"].iloc[-1])
+            if price > 0:
+                return round(price, 2)
+        return None
     except Exception as e:
-        logger.error(f"USD/RUB fetch error: {e}")
+        logger.error(f"USD/RUB (yfinance) fetch error: {e}")
         return None
 
 
 def fetch_imoex() -> dict | None:
+    """MOEX ISS — индекс Мосбиржи IMOEX."""
     try:
         resp = requests.get(
             IMOEX_URL,
