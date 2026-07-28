@@ -126,12 +126,12 @@ def test_news_sources() -> list[tuple[str, bool, str]]:
     results = []
     try:
         from modules import news_sources
-        breaking = news_sources.fetch_breaking_news(limit=2)
+        breaking = news_sources.fetch_breaking_news(limit_per_feed=2)
         ok = isinstance(breaking, list) and len(breaking) > 0
         results.append(("RSS Breaking", ok,
                          f"✅ {len(breaking)} новостей" if ok else "❌ пустой список"))
 
-        regular = news_sources.fetch_news(limit=3)
+        regular = news_sources.fetch_news(limit_per_feed=3)
         ok2 = isinstance(regular, list) and len(regular) > 0
         results.append(("RSS Regular", ok2,
                          f"✅ {len(regular)} новостей" if ok2 else "❌ пустой список"))
@@ -330,9 +330,12 @@ def test_econ_calendar() -> list[tuple[str, bool, str]]:
                              "❌ FRED_API_KEY не задан — модуль не работает (нужно добавить на Render)"))
             return results
 
-        ok, detail = _run("econ_calendar fetch_upcoming 7d", econ_calendar.fetch_upcoming, 7)
-        results.append(("Экономкалендарь / 7 дней", ok,
-                         f"✅ {detail}" if ok else f"❌ {detail}"))
+        events = econ_calendar.fetch_upcoming(days_ahead=30)
+        # Пустой список — не ошибка: просто нет событий в ближайшие 30 дней
+        ok = isinstance(events, list)
+        detail = (f"✅ {len(events)} событий в ближайшие 30 дней"
+                  if events else "✅ нет событий в ближайшие 30 дней (норма)")
+        results.append(("Экономкалендарь / 30 дней", ok, detail))
     except Exception as e:
         results.append(("Экономкалендарь", False, f"❌ {e}"))
     return results

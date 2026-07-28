@@ -3,29 +3,16 @@
 
 USD/RUB — через Yahoo Finance (yfinance, USDRUB=X): даёт актуальный курс
 в любое время суток, а не только во время торгов на MOEX.
-Для гарантии свежих данных используем явный временной диапазон (последние
-15 минут), что обходит внутренний кэш yfinance.
 
-IMOEX — через официальный бесплатный MOEX ISS API.
+IMOEX — через yfinance (IMOEX.ME): та же логика — работает круглосуточно,
+не зависит от доступности MOEX ISS API.
 """
 import logging
 import datetime
-import requests
 
 logger = logging.getLogger(__name__)
 
-TIMEOUT = 10
-IMOEX_URL = "https://iss.moex.com/iss/engines/stock/markets/index/boards/SNDX/securities/IMOEX.json"
 
-
-def _first_row(block: dict) -> dict | None:
-    if not block:
-        return None
-    columns = block.get("columns", [])
-    data = block.get("data", [])
-    if not data:
-        return None
-    return dict(zip(columns, data[0]))
 
 
 def fetch_usd_rub() -> float | None:
@@ -72,20 +59,23 @@ def fetch_usd_rub() -> float | None:
 
 
 def fetch_imoex() -> dict | None:
-    """MOEX ISS — индекс Мосбиржи IMOEX."""
+    """IMOEX через yfinance (IMOEX.ME) — работает круглосуточно,
+    не зависит от доступности MOEX ISS API."""
     try:
-        resp = requests.get(
-            IMOEX_URL,
-            params={"iss.meta": "off", "marketdata.columns": "SECID,CURRENTVALUE,LASTTOPREVPRICE"},
-            timeout=TIMEOUT,
-        )
-        resp.raise_for_status()
-        row = _first_row(resp.json().get("marketdata"))
-        if not row or row.get("CURRENTVALUE") is None:
+        import yfinance as yf
+        ticker = yf.Ticker("IMOEX.ME")
+        hist = ticker.history(period="2d", interval="1h", auto_adjust=True)
+        if hist is None or hist.empty:
+            # Fallback: более широкое окно
+            hist = ticker.history(period="5d", interval="1d", auto_adjust=True)
+        if hist is None or hist.empty:
             return None
-        return {"value": row["CURRENTVALUE"], "change_pct": row.get("LASTTOPREVPRICE")}
+        current = float(hist["Close"].iloc[-1])
+        prev    = float(hist["Close"].iloc[-2]) if len(hist) > 1 else current
+        change_pct = round((current - prev) / prev * 100, 2) if prev else None
+        return {"value": round(current, 2), "change_pct": change_pct}
     except Exception as e:
-        logger.error(f"IMOEX fetch error: {e}")
+        logger.error(f"IMOEX (yfinance) fetch error: {e}")
         return None
 
 

@@ -139,44 +139,61 @@ def fetch_latest_13f(cik: str) -> dict | None:
         acc_clean = accession.replace("-", "")
         cik_int = int(padded)
 
-        # Пробуем стандартные имена файла информационной таблицы
-        candidate_names = [
-            "infotable.xml",
-            "form13fInfoTable.xml",
-            "13fInfoTable.xml",
-            "information_table.xml",
-        ]
-
         xml_content = None
-        for fname in candidate_names:
-            file_url = f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{acc_clean}/{fname}"
-            try:
-                r = requests.get(file_url, headers=SEC_HEADERS, timeout=TIMEOUT)
-                if r.status_code == 200 and len(r.content) > 100:
-                    xml_content = r.content
-                    logger.info(f"13F: found infotable at {fname} for CIK={cik}")
-                    break
-            except Exception:
-                continue
 
-        # Если не нашли по имени — ищем через индекс
-        if not xml_content:
-            docs = _get_filing_index(cik, accession)
-            if docs:
-                for doc in docs:
+        # ШАГ 1: читаем индекс filing — самый надёжный способ,
+        # не зависит от того как фонд назвал свой файл
+        docs = _get_filing_index(cik, accession)
+        if docs:
+            # Ищем XML-файл таблицы позиций по ключевым словам в имени/описании
+            xml_doc = None
+            for doc in docs:
+                doc_name = (doc.get("documentName") or doc.get("name") or "").lower()
+                doc_desc = (doc.get("description") or doc.get("type") or "").lower()
+                if any(kw in doc_name or kw in doc_desc for kw in
+                       ("infotable", "information_table", "form13f", "13f-hr")):
+                    xml_doc = doc.get("documentName") or doc.get("name")
+                    break
+            # Fallback: любой .xml кроме первичного документа (cover page)
+            if not xml_doc:
+                for i, doc in enumerate(docs):
                     doc_name = (doc.get("documentName") or doc.get("name") or "").lower()
-                    if "infotable" in doc_name or "information_table" in doc_name:
-                        file_url = (
-                            f"https://www.sec.gov/Archives/edgar/data/"
-                            f"{cik_int}/{acc_clean}/{doc.get('documentName') or doc.get('name')}"
-                        )
-                        try:
-                            r = requests.get(file_url, headers=SEC_HEADERS, timeout=TIMEOUT)
-                            if r.status_code == 200 and len(r.content) > 100:
-                                xml_content = r.content
-                                break
-                        except Exception:
-                            continue
+                    if doc_name.endswith(".xml") and i > 0:
+                        xml_doc = doc.get("documentName") or doc.get("name")
+                        break
+            if xml_doc:
+                file_url = (
+                    f"https://www.sec.gov/Archives/edgar/data/"
+                    f"{cik_int}/{acc_clean}/{xml_doc}"
+                )
+                try:
+                    r = requests.get(file_url, headers=SEC_HEADERS, timeout=TIMEOUT)
+                    if r.status_code == 200 and len(r.content) > 100:
+                        xml_content = r.content
+                        logger.info(f"13F: found infotable via index ({xml_doc}) for CIK={cik}")
+                except Exception as e:
+                    logger.warning(f"13F: index XML fetch failed ({xml_doc}): {e}")
+
+        # ШАГ 2: если индекс не помог — перебираем типичные имена файлов
+        if not xml_content:
+            candidate_names = [
+                "infotable.xml",
+                "form13fInfoTable.xml",
+                "13fInfoTable.xml",
+                "information_table.xml",
+                "wfbrkinfopage.xml",   # Berkshire Hathaway
+                "13fform.xml",
+            ]
+            for fname in candidate_names:
+                file_url = f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{acc_clean}/{fname}"
+                try:
+                    r = requests.get(file_url, headers=SEC_HEADERS, timeout=TIMEOUT)
+                    if r.status_code == 200 and len(r.content) > 100:
+                        xml_content = r.content
+                        logger.info(f"13F: found infotable by name ({fname}) for CIK={cik}")
+                        break
+                except Exception:
+                    continue
 
         if not xml_content:
             logger.warning(f"13F: could not find infotable XML for CIK={cik}, acc={accession}")
