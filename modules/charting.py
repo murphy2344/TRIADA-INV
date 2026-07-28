@@ -5,7 +5,6 @@ import requests
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 import yfinance as yf
 
 logger = logging.getLogger(__name__)
@@ -43,6 +42,11 @@ FINVIZ_TICKER_MAP = {
     "ETH-USD": "ETHUSD",
 }
 
+# Минимальный размер реального графика Finviz в байтах.
+# "Chart not available" — это маленький GIF/PNG (~2-4 KB).
+# Реальный дневной график — обычно 30–80 KB.
+_FINVIZ_MIN_VALID_BYTES = 8_000
+
 
 def resolve_ticker(raw: str) -> str | None:
     if not raw:
@@ -54,7 +58,8 @@ def resolve_ticker(raw: str) -> str | None:
 
 
 def _finviz_chart(ticker: str) -> bytes | None:
-    """Fetch chart from Finviz with proper browser headers. 2 attempts."""
+    """Fetch chart from Finviz. Возвращает None если Finviz вернул
+    заглушку 'Chart not available' (детектируем по размеру < 8 KB)."""
     finviz_ticker = FINVIZ_TICKER_MAP.get(ticker, ticker)
     if finviz_ticker is None:
         return None
@@ -65,7 +70,14 @@ def _finviz_chart(ticker: str) -> bytes | None:
             r = requests.get(url, headers=FINVIZ_HEADERS, timeout=10)
             ct = r.headers.get("Content-Type", "")
             if r.status_code == 200 and ct.startswith("image/"):
-                logger.info(f"Finviz chart OK for {finviz_ticker}")
+                # Проверяем размер: заглушка "Chart not available" очень маленькая
+                if len(r.content) < _FINVIZ_MIN_VALID_BYTES:
+                    logger.warning(
+                        f"Finviz returned placeholder for {finviz_ticker} "
+                        f"({len(r.content)} bytes < {_FINVIZ_MIN_VALID_BYTES}), using fallback"
+                    )
+                    return None
+                logger.info(f"Finviz chart OK for {finviz_ticker} ({len(r.content)} bytes)")
                 return r.content
             else:
                 logger.warning(f"Finviz attempt {attempt+1}: status={r.status_code}, ct={ct}")
@@ -79,7 +91,7 @@ def _finviz_chart(ticker: str) -> bytes | None:
 
 
 def _yfinance_chart(ticker: str, period: str = "5d") -> bytes | None:
-    """Fallback (когда Finviz недоступен): свой график в стиле Apple Stocks —
+    """Fallback: свой график в стиле Apple Stocks —
     тёмный фон, крупная цена/% сверху, тонкая area-заливка под линией."""
     sparkline = get_sparkline_data(ticker, period)
     if not sparkline:
@@ -90,7 +102,7 @@ def _yfinance_chart(ticker: str, period: str = "5d") -> bytes | None:
         last = sparkline["last"]
         pct = sparkline["change_pct"]
         is_up = pct >= 0
-        color = "#30D158" if is_up else "#FF453A"  # цвета из Apple Stocks
+        color = "#30D158" if is_up else "#FF453A"  # Apple Stocks green/red
 
         fig, ax = plt.subplots(figsize=(10, 5.6), dpi=150)
         fig.patch.set_facecolor("#000000")
@@ -100,7 +112,7 @@ def _yfinance_chart(ticker: str, period: str = "5d") -> bytes | None:
         ax.plot(x, values, color=color, linewidth=2.2, solid_capstyle="round")
         ax.fill_between(x, values, min(values), alpha=0.15, color=color)
 
-        ax.axis("off")  # Apple Stocks почти не показывает оси на превью-графике
+        ax.axis("off")
 
         sign = "+" if pct >= 0 else ""
         fig.text(0.04, 0.92, ticker, color="#ffffff", fontsize=26, fontweight="bold", va="top")
@@ -122,9 +134,7 @@ def _yfinance_chart(ticker: str, period: str = "5d") -> bytes | None:
 
 
 def get_current_price(ticker_raw: str) -> float | None:
-    """Текущая цена актива — для трек-рекорда рекомендаций (сверка через 24ч).
-    Переиспользует resolve_ticker и yfinance, уже используемые для графиков —
-    отдельной зависимости не требуется."""
+    """Текущая цена актива — для трек-рекорда рекомендаций."""
     ticker = resolve_ticker(ticker_raw)
     if not ticker:
         return None
@@ -139,9 +149,7 @@ def get_current_price(ticker_raw: str) -> float | None:
 
 
 def get_sparkline_data(ticker_raw: str, period: str = "5d") -> dict | None:
-    """Лёгкие данные для мини-графика (sparkline) в Apple-стиле: цены закрытия,
-    текущая цена, % изменения. Переиспользуется и в yfinance-fallback графике,
-    и в Pillow-заглушке (media.py) — единая точка получения данных."""
+    """Данные для мини-графика (sparkline) в Apple-стиле."""
     ticker = resolve_ticker(ticker_raw)
     if not ticker:
         return None
@@ -171,11 +179,11 @@ def build_chart(ticker_raw: str) -> bytes | None:
     if not ticker:
         return None
 
-    # 1. Try Finviz (primary)
+    # 1. Try Finviz (primary) — проверяет размер и отбрасывает заглушки
     result = _finviz_chart(ticker)
     if result:
         return result
 
     # 2. Fallback: yfinance + matplotlib
-    logger.info(f"Finviz failed for {ticker}, using yfinance fallback")
+    logger.info(f"Finviz failed or returned placeholder for {ticker}, using yfinance fallback")
     return _yfinance_chart(ticker)

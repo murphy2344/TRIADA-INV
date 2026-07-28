@@ -18,18 +18,38 @@ CATEGORY_LABELS = {
     "market":  "ФИНАНСОВЫЕ РЫНКИ",
 }
 
-# Индекс-пульс рынка для карточек без конкретного тикера (дайджесты) —
-# показываем реальный S&P 500 вместо пустого логотипа, ближе к Apple Stocks
+# Стаб-файлы по категории. Если файл существует на диске — используем его
+# вместо генерации Pillow-картинки.
+STUB_FILES = {
+    "urgent":  "assets/stubs/breaking.jpg",
+    "hourly":  "assets/stubs/hourly.jpg",
+    "morning": "assets/stubs/morning.jpg",
+    "evening": "assets/stubs/evening.jpg",
+    "weekly":  "assets/stubs/weekly.jpg",
+    "monthly": "assets/stubs/monthly.jpg",
+    "market":  "assets/stubs/breaking.jpg",
+}
+
+# Индекс-пульс рынка для дайджестов без конкретного тикера
 DIGEST_CATEGORIES = {"hourly", "morning", "evening", "weekly", "monthly"}
 DEFAULT_PULSE_TICKER = "^GSPC"
 
 
+def _load_stub_file(post_category: str) -> bytes | None:
+    """Читает статичный стаб-файл из assets/stubs/ если он существует."""
+    path = STUB_FILES.get(post_category)
+    if path and os.path.exists(path):
+        try:
+            with open(path, "rb") as f:
+                return f.read()
+        except Exception as e:
+            logger.warning(f"Could not read stub file {path}: {e}")
+    return None
+
+
 def _generate_pillow_fallback(post_category: str = "market", ticker: str | None = None) -> bytes | None:
-    """Брендированная заглушка TRIADA INVESTING в стиле Apple Stocks:
-    тёмный фон, крупная цена/%, тонкий sparkline. Если передан тикер (или
-    категория — дайджест, тогда берём S&P 500 как пульс рынка) — рисуем
-    настоящий мини-график по реальным данным. Если данных нет вообще —
-    аккуратный минималистичный вариант без графика (просто лейбл)."""
+    """Брендированная заглушка TRIADA INVESTING в стиле Apple Stocks.
+    Вызывается только если статичный стаб-файл не найден на диске."""
     from PIL import Image, ImageDraw, ImageFont
 
     sparkline = None
@@ -64,18 +84,14 @@ def _generate_pillow_fallback(post_category: str = "market", ticker: str | None 
             pct = sparkline["change_pct"]
             last = sparkline["last"]
             is_up = pct >= 0
-            color = (48, 209, 88) if is_up else (255, 69, 58)  # Apple Stocks green/red
+            color = (48, 209, 88) if is_up else (255, 69, 58)
 
-            # Заголовок: тикер сверху слева, категория — под ним мелко
             draw.text((60, 50), sparkline["ticker"], fill=(255, 255, 255), font=font_ticker)
             draw.text((60, 110), label, fill=(140, 140, 140), font=font_small)
-
-            # Крупная цена и % изменения
             draw.text((60, 170), f"{last:,.2f}", fill=(255, 255, 255), font=font_price)
             sign = "+" if pct >= 0 else ""
             draw.text((60, 250), f"{sign}{pct:.2f}%", fill=color, font=font_change)
 
-            # Тонкий sparkline снизу карточки
             chart_top, chart_bottom = 400, 620
             chart_left, chart_right = 60, 1140
             v_min, v_max = min(values), max(values)
@@ -86,7 +102,6 @@ def _generate_pillow_fallback(post_category: str = "market", ticker: str | None 
                 y = chart_bottom - (v - v_min) / v_range * (chart_bottom - chart_top)
                 points.append((x, y))
             draw.line(points, fill=color, width=4, joint="curve")
-            # Лёгкая заливка под линией
             fill_poly = points + [(chart_right, chart_bottom), (chart_left, chart_bottom)]
             overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
             overlay_draw = ImageDraw.Draw(overlay)
@@ -94,7 +109,6 @@ def _generate_pillow_fallback(post_category: str = "market", ticker: str | None 
             img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
             draw = ImageDraw.Draw(img)
         else:
-            # Без данных — просто аккуратный минималистичный лейбл по центру
             bbox = draw.textbbox((0, 0), label, font=font_label)
             tw = bbox[2] - bbox[0]
             draw.text(((1200 - tw) // 2, 320), label, fill=(220, 220, 220), font=font_label)
@@ -243,17 +257,17 @@ async def get_photo(
     Priority per spec:
     1. RSS article image
     2. Wikimedia Commons (subject_en preferred)
-    3. Wikipedia page thumbnail (subject_en preferred)
-    4. Google CSE (subject_en preferred)
+    3. Wikipedia page thumbnail
+    4. Google CSE
     5. Pexels / Pixabay (if keys set)
-    6. Pillow-generated branded fallback (с sparkline, если есть тикер)
+    6. Static stub file from assets/stubs/ (если существует)
+    7. Pillow-generated branded fallback (только если стаб-файла нет)
     """
     # Step 1
     if rss_image and rss_image.startswith("http"):
         logger.info(f"Media: RSS image for '{subject[:40]}'")
         return rss_image
 
-    # Use English query for external search; fallback to Russian if not available
     search_query = (subject_en.strip() if subject_en and subject_en.strip() else subject)
 
     async with aiohttp.ClientSession() as session:
@@ -286,6 +300,12 @@ async def get_photo(
             logger.info(f"Media: Pixabay for '{search_query[:40]}'")
             return result
 
-    # Step 6
+    # Step 6 — статичный стаб-файл из assets/stubs/
+    stub = _load_stub_file(post_category)
+    if stub:
+        logger.info(f"Media: static stub file for '{post_category}'")
+        return stub
+
+    # Step 7 — Pillow-генерация только если стаб-файла нет на диске
     logger.info(f"Media: Pillow fallback for '{search_query[:40]}'")
     return _generate_pillow_fallback(post_category, ticker=ticker)

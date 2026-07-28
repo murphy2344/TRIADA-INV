@@ -41,7 +41,6 @@ def _rec(a: dict) -> str:
     if critic_result.get("agree"):
         return base
 
-    # Критик не согласен — показываем без упоминания AI
     critic_note = _e(critic_result.get("critic_note", ""))
     if not critic_note:
         return base
@@ -52,9 +51,7 @@ def _rec(a: dict) -> str:
 
 
 def _chip_line(chip_data: dict | None) -> str:
-    """Строка-чип в стиле Apple Stocks: TICKER  цена  ±%.
-    Показывается только когда реально есть свежие рыночные данные —
-    если их нет, просто не добавляем строку, не выдумываем цифры."""
+    """Строка-чип в стиле Apple Stocks: TICKER  цена  ±%."""
     if not chip_data:
         return ""
     ticker = _e(chip_data.get("ticker", ""))
@@ -163,8 +160,9 @@ def fmt_weekly(analyses: list, fng: str = "", accuracy: dict | None = None) -> t
         body += f"\n<b>Индекс страха и жадности:</b> {fng}"
     if accuracy and accuracy.get("total"):
         body += (
-            f"\n\n<b>Точность рекомендаций за неделю:</b> "
-            f"{accuracy['accuracy_pct']}% ({accuracy['correct']}/{accuracy['total']})"
+            f"\n\n<b>🎯 Точность рекомендаций за неделю:</b> "
+            f"<b>{accuracy['accuracy_pct']}%</b> "
+            f"({accuracy['correct']}/{accuracy['total']} верных)"
         )
     body += "</blockquote>"
     return header, body
@@ -174,7 +172,6 @@ PERIOD_LABELS = {"day": "За день", "week": "За неделю", "month": "
 
 
 def fmt_leaders(all_periods: dict) -> tuple[str, str]:
-    """all_periods: {"day": (gainers, losers), "week": (...), "month": (...), "year": (...)}"""
     header = "<b>ЛИДЕРЫ РОСТА И ПАДЕНИЯ | МИРОВОЙ РЫНОК</b>\n\n#МировойРынок #ЛидерыРынка #Инвестиции"
     body = "<blockquote expandable>"
 
@@ -296,4 +293,107 @@ def fmt_econ_calendar_today(releases: list) -> str:
         "<b>СЕГОДНЯ — ВАЖНЫЕ ЭКОНОМИЧЕСКИЕ ДАННЫЕ</b>\n\n" + "\n".join(lines) +
         "\n\nОжидается повышенная волатильность.\n\n"
         "#ЭкономКалендарь #Макро #Волатильность"
+    )
+
+
+def fmt_track_record_result(results: list) -> str:
+    """Публикует итоги проверки рекомендаций через 24 часа.
+    results: list of dicts — ticker, recommendation, price_at_post, price_after, correct"""
+    if not results:
+        return ""
+
+    lines = []
+    for r in results:
+        ticker = _e(r["ticker"])
+        rec = REC_MAP.get(r["recommendation"], r["recommendation"])
+        price_at = r["price_at_post"]
+        price_after = r["price_after"]
+        try:
+            change_pct = (price_after - price_at) / price_at * 100
+        except ZeroDivisionError:
+            change_pct = 0.0
+        sign = "+" if change_pct >= 0 else ""
+        ok_icon = "✅" if r["correct"] else "❌"
+        lines.append(
+            f"{ok_icon} <b>{ticker}</b> — {rec}\n"
+            f"Цена тогда: <code>{price_at:,.2f}</code> → сейчас: <code>{price_after:,.2f}</code> "
+            f"(<code>{sign}{change_pct:.2f}%</code>)"
+        )
+
+    return (
+        "<b>🎯 ПРОВЕРКА РЕКОМЕНДАЦИЙ (24 часа)</b>\n\n"
+        + "\n\n".join(lines)
+        + "\n\n#ТрекРекорд #Инвестиции"
+    )
+
+
+def fmt_cot_report(items: list) -> str:
+    """COT (Commitments of Traders) — позиции крупных спекулянтов и хеджеров."""
+    if not items:
+        return ""
+
+    lines = []
+    for item in items:
+        long_s = item.get("large_spec_long", 0)
+        short_s = item.get("large_spec_short", 0)
+        netto = long_s - short_s
+        sentiment = "бычий настрой 🟢" if netto > 0 else "медвежий настрой 🔴"
+        sign = "+" if netto >= 0 else ""
+
+        # Берём короткое имя из названия контракта (до первой запятой/тире)
+        contract_full = item.get("contract", item.get("ticker", ""))
+        short_name = contract_full.split(" - ")[0].split(",")[0].strip()
+
+        lines.append(
+            f"<b>{_e(short_name)}</b>\n"
+            f"Крупные спекулянты нетто: <code>{sign}{netto:,}</code> контрактов — {sentiment}\n"
+            f"(лонг: <code>{long_s:,}</code> / шорт: <code>{short_s:,}</code>)"
+        )
+
+    date_str = items[0].get("date", "") if items else ""
+    header = f"<b>ПОЗИЦИИ КРУПНЫХ ИГРОКОВ (COT)</b>"
+    if date_str:
+        header += f"\n<i>Отчёт CFTC за {date_str}</i>"
+
+    return (
+        header + "\n\n"
+        + "\n\n".join(lines)
+        + "\n\n<i>Источник: CFTC Commitments of Traders (Legacy Combined)</i>\n\n"
+        "#COT #КрупныеИгроки #Фьючерсы #Инвестиции"
+    )
+
+
+def fmt_13f_digest(items: list) -> str:
+    """13F Filings — что покупают крупные институциональные фонды."""
+    if not items:
+        return ""
+
+    sections = []
+    for item in items:
+        fund_name = _e(item.get("fund_name", "Неизвестный фонд"))
+        positions = item.get("positions", [])
+        period = _e(item.get("report_period", ""))
+
+        pos_lines = []
+        for pos in positions[:5]:
+            val = pos.get("value", 0)
+            val_str = f"${val * 1000:,.0f}" if val else "н/д"
+            pos_lines.append(f"• {_e(pos['name'])}: <code>{val_str}</code>")
+
+        section = f"<b>{fund_name}</b>"
+        if period:
+            section += f" <i>({period})</i>"
+        if pos_lines:
+            section += "\nТоп-5 позиций:\n" + "\n".join(pos_lines)
+        else:
+            section += "\n<i>Позиции не удалось получить</i>"
+
+        sections.append(section)
+
+    return (
+        "<b>ЧТО ПОКУПАЮТ КРУПНЫЕ ФОНДЫ (13F)</b>\n\n"
+        + "\n\n".join(sections)
+        + "\n\n<i>Данные за последний поданный квартал, публикуются с задержкой "
+        "до 45 дней по требованию SEC.</i>\n\n"
+        "#13F #КрупныеФонды #Институционалы #Инвестиции"
     )

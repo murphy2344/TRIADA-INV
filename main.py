@@ -46,12 +46,14 @@ pre{background:#010409;padding:12px;border-radius:6px;color:#f85149;font-size:12
 </div>
 <div class="card"><h2>Модули</h2>
 <p>✅ AI: Groq llama-3.3-70b-versatile</p>
-<p>✅ AI-критик: Google Gemini (только high-impact BREAKING)</p>
-<p>✅ Графики: Finviz → yfinance+matplotlib (fallback)</p>
-<p>✅ Фото: стабы для плановых постов / RSS→Wikimedia→Google CSE→Pexels для BREAKING</p>
+<p>✅ AI-критик: Groq gemma2-9b-it (только high-impact BREAKING)</p>
+<p>✅ Графики: Finviz (с детектом заглушки) → yfinance+matplotlib (fallback)</p>
+<p>✅ Фото: стаб-файлы из assets/stubs/ / RSS→Wikimedia→Google CSE→Pexels</p>
 <p>✅ Антидубль: Upstash Redis → SQLite (fallback), 2 уровня проверки</p>
-<p>✅ Трек-рекорд: сверка рекомендаций через 24ч (yfinance)</p>
-<p>✅ Лидеры: мировой рынок (S&P 500 / NASDAQ), макс. 1 рос. компания</p>
+<p>✅ Трек-рекорд: проверка через 24ч + публикация результата в канал</p>
+<p>✅ COT: позиции крупных игроков (CFTC, по пятницам)</p>
+<p>✅ 13F: отчёты крупных фондов (SEC EDGAR, по понедельникам)</p>
+<p>✅ Планировщик: misfire_grace_time=600с, coalesce=True</p>
 </div>
 </body></html>
 """
@@ -120,7 +122,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
       "/earnings — дайджест отчётностей компаний\n"
       "/calendar — экономический календарь\n"
       "/alerts — технические алерты (RSI / SMA)\n"
-      "/heatmap — тепловая карта секторов\n\n"
+      "/heatmap — тепловая карта секторов\n"
+      "/cot — позиции крупных игроков (COT/CFTC)\n"
+      "/13f — отчёты крупных фондов (13F/SEC)\n\n"
       "<b>Служебные:</b>\n"
       "/status — статус бота и статистика\n"
       "/test — быстрый тест (breaking → hourly)\n\n"
@@ -142,7 +146,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
           if nxt:
               msk_time = nxt.astimezone(MSK).strftime("%H:%M МСК")
               next_jobs.append(f"  • {job.id}: {msk_time}")
-  next_str = "\n".join(next_jobs[:6]) if next_jobs else "нет данных"
+  next_str = "\n".join(next_jobs[:8]) if next_jobs else "нет данных"
 
   if accuracy["total"] > 0:
       accuracy_line = (
@@ -317,7 +321,7 @@ async def cmd_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE):
       posted += await pipeline.run_econ_calendar_weekly(context.bot, admin_id)
       await update.message.reply_text(
           f"✅ Опубликовано постов: {posted}." if posted > 0
-          else "ℹ️ Нет событий в календаре."
+          else "ℹ️ Нет событий в календаре (проверьте FRED_API_KEY)."
       )
   except Exception as e:
       await update.message.reply_text(f"❌ Ошибка: {e}")
@@ -346,6 +350,34 @@ async def cmd_heatmap(update: Update, context: ContextTypes.DEFAULT_TYPE):
       await update.message.reply_text(
           "✅ Тепловая карта опубликована." if posted > 0
           else "❌ Не удалось получить данные."
+      )
+  except Exception as e:
+      await update.message.reply_text(f"❌ Ошибка: {e}")
+
+
+@admin_only
+async def cmd_cot(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  await update.message.reply_text("📊 Загружаю позиции крупных игроков (COT/CFTC)...")
+  admin_id = str(update.effective_chat.id)
+  try:
+      posted = await pipeline.run_cot_report(context.bot, admin_id)
+      await update.message.reply_text(
+          "✅ COT Report опубликован." if posted > 0
+          else "❌ Не удалось получить данные CFTC."
+      )
+  except Exception as e:
+      await update.message.reply_text(f"❌ Ошибка: {e}")
+
+
+@admin_only
+async def cmd_13f(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  await update.message.reply_text("🏦 Загружаю 13F отчёты крупных фондов (SEC EDGAR)...")
+  admin_id = str(update.effective_chat.id)
+  try:
+      posted = await pipeline.run_13f_digest(context.bot, admin_id)
+      await update.message.reply_text(
+          "✅ 13F Digest опубликован." if posted > 0
+          else "❌ Не удалось получить данные SEC."
       )
   except Exception as e:
       await update.message.reply_text(f"❌ Ошибка: {e}")
@@ -384,13 +416,15 @@ async def main():
   application.add_handler(CommandHandler("calendar", cmd_calendar))
   application.add_handler(CommandHandler("alerts",   cmd_alerts))
   application.add_handler(CommandHandler("heatmap",  cmd_heatmap))
+  application.add_handler(CommandHandler("cot",      cmd_cot))
+  application.add_handler(CommandHandler("13f",      cmd_13f))
 
   admin_id = str(ADMIN_ID) if ADMIN_ID else ""
   application.bot_data["admin_id"] = admin_id
 
   scheduler = build_scheduler(application.bot, admin_id)
   scheduler.start()
-  logger.info("Scheduler started with all jobs")
+  logger.info("Scheduler started with all jobs (misfire_grace_time=600s)")
 
   async with application:
       await application.initialize()
@@ -401,35 +435,39 @@ async def main():
           try:
               stats = await storage.get_today_stats()
               sqlite_ok = True
-              sqlite_status = "✅ SQLite — OK (данные сохраняются локально)"
+              sqlite_status = "✅ SQLite — OK"
           except Exception as e:
               sqlite_status = f"❌ SQLite — ОШИБКА: {e}"
 
           redis_ok, redis_error = await dedup.check_redis_connection()
           if redis_ok:
-              redis_status = "✅ Upstash Redis — OK (антидубль персистентный)"
+              redis_status = "✅ Upstash Redis — OK"
           elif not dedup.USE_REDIS:
-              redis_status = "⚠️ Upstash Redis — не настроен (антидубль через SQLite, сбрасывается при рестарте)"
+              redis_status = "⚠️ Upstash Redis — не настроен (fallback SQLite)"
           else:
               redis_status = f"❌ Upstash Redis — ошибка: {redis_error}"
 
-          overall = "✅ Бот запущен и работает" if (sqlite_ok and redis_ok) else "⚠️ Бот запущен с предупреждениями"
+          overall = "✅ Бот запущен" if (sqlite_ok and redis_ok) else "⚠️ Бот запущен с предупреждениями"
           msg = (
               f"🤖 <b>TRIADA INVESTING Bot — старт</b>\n\n"
               f"{overall}\n\n"
               f"<b>Базы данных:</b>\n"
               f"{sqlite_status}\n"
               f"{redis_status}\n\n"
-              f"<b>Активные модули:</b>\n"
-              f"• Пульс рынка (каждые 15 мин)\n"
-              f"• Экономический календарь FRED\n"
-              f"• Технические алерты RSI/SMA\n"
-              f"• Дайджест отчётностей компаний\n"
-              f"• Тепловая карта секторов\n"
-              f"• Лидеры: мировой рынок (S&P 500 / NASDAQ)"
+              f"<b>Исправления в этой версии:</b>\n"
+              f"• Планировщик: misfire_grace_time=600с (задачи больше не пропускаются)\n"
+              f"• Все сетевые вызовы вынесены в asyncio.to_thread\n"
+              f"• Пульс рынка: обход кэша yfinance\n"
+              f"• Finviz: детект заглушки 'Chart not available' по размеру\n"
+              f"• Трек-рекорд: публикует результат проверки в канал\n"
+              f"• Технические алерты: убраны из авто, только /alerts\n"
+              f"• Фото-заглушки: используются файлы из assets/stubs/\n\n"
+              f"<b>Новые функции:</b>\n"
+              f"• COT Report (CFTC, пятница 23:00 МСК) — /cot\n"
+              f"• 13F Filings (SEC EDGAR, пн 10:00 МСК) — /13f"
           )
           await notify_admin(application.bot, admin_id, msg)
-          logger.info(f"Startup diagnostic sent to admin. SQLite={sqlite_ok}, Redis={redis_ok}")
+          logger.info(f"Startup diagnostic sent. SQLite={sqlite_ok}, Redis={redis_ok}")
 
       if application.updater:
           await application.updater.start_polling(drop_pending_updates=True)

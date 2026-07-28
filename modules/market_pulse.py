@@ -3,14 +3,14 @@
 
 USD/RUB — через Yahoo Finance (yfinance, USDRUB=X): даёт актуальный курс
 в любое время суток, а не только во время торгов на MOEX.
+Для гарантии свежих данных используем явный временной диапазон (последние
+15 минут), что обходит внутренний кэш yfinance.
 
-IMOEX — через официальный бесплатный MOEX ISS API: единственный источник
-индекса Мосбиржи в реальном времени, ключ не нужен.
+IMOEX — через официальный бесплатный MOEX ISS API.
 """
 import logging
 import datetime
 import requests
-import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +29,40 @@ def _first_row(block: dict) -> dict | None:
 
 
 def fetch_usd_rub() -> float | None:
-    """Yahoo Finance USDRUB=X — актуальный курс вне зависимости от расписания MOEX."""
+    """Yahoo Finance USDRUB=X с явным временным диапазоном для обхода кэша.
+    Каждый вызов запрашивает данные за последние 20 минут — новое окно
+    означает новый запрос, не попадающий в кэш предыдущего обращения."""
     try:
-        hist = yf.Ticker("USDRUB=X").history(period="1d", interval="5m")
-        if hist is not None and not hist.empty:
-            price = float(hist["Close"].iloc[-1])
+        import yfinance as yf
+        now = datetime.datetime.utcnow()
+        start = now - datetime.timedelta(minutes=20)
+        # Используем yf.download с явным start/end — обходит кэш Ticker.history
+        data = yf.download(
+            "USDRUB=X",
+            start=start.strftime("%Y-%m-%d %H:%M:%S"),
+            end=now.strftime("%Y-%m-%d %H:%M:%S"),
+            interval="1m",
+            progress=False,
+            auto_adjust=True,
+            multi_level_index=False,
+        )
+        if data is not None and not data.empty:
+            close_col = "Close" if "Close" in data.columns else data.columns[0]
+            price = float(data[close_col].iloc[-1])
+            if price > 0:
+                return round(price, 2)
+        # Fallback: более широкое окно
+        data2 = yf.download(
+            "USDRUB=X",
+            period="1d",
+            interval="5m",
+            progress=False,
+            auto_adjust=True,
+            multi_level_index=False,
+        )
+        if data2 is not None and not data2.empty:
+            close_col = "Close" if "Close" in data2.columns else data2.columns[0]
+            price = float(data2[close_col].iloc[-1])
             if price > 0:
                 return round(price, 2)
         return None
@@ -61,8 +90,7 @@ def fetch_imoex() -> dict | None:
 
 
 def build_pulse_text() -> str:
-    """Текст закреплённого сообщения. Если какие-то данные недоступны —
-    просто не включаем их в строку, не выдумываем цифры."""
+    """Текст закреплённого сообщения. Если данные недоступны — не выдумываем цифры."""
     usd_rub = fetch_usd_rub()
     imoex = fetch_imoex()
 
