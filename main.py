@@ -383,6 +383,35 @@ async def cmd_13f(update: Update, context: ContextTypes.DEFAULT_TYPE):
       await update.message.reply_text(f"❌ Ошибка: {e}")
 
 
+@admin_only
+async def cmd_testall(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  """Полная диагностика — проверяет все модули и публикует отчёт в чат + канал."""
+  admin_id = str(update.effective_chat.id)
+  await update.message.reply_text(
+      "🔍 <b>Запускаю полную диагностику...</b>\n\n"
+      "Это займёт 1–3 минуты — проверяю RSS, AI, графики, БД, COT, 13F и т.д.\n"
+      "Результат придёт сюда и будет опубликован в канал.",
+      parse_mode="HTML"
+  )
+  try:
+      from modules import selftest
+      report = await selftest.run_full_selftest(context.bot, admin_id, scheduler)
+      # Отправляем в чат с администратором
+      await context.bot.send_message(chat_id=admin_id, text=report, parse_mode="HTML")
+      # Публикуем в канал чтобы владелец видел
+      from config.config import CHANNEL_ID
+      try:
+          await context.bot.send_message(
+              chat_id=CHANNEL_ID,
+              text=report,
+              parse_mode="HTML"
+          )
+      except Exception as e_ch:
+          await update.message.reply_text(f"⚠️ В канал не отправилось: {e_ch}")
+  except Exception as e:
+      await update.message.reply_text(f"❌ Ошибка диагностики: {e}")
+
+
 # ─── Main ─────────────────────────────────────────────────────────────────────
 async def main():
   global application, scheduler
@@ -418,6 +447,7 @@ async def main():
   application.add_handler(CommandHandler("heatmap",  cmd_heatmap))
   application.add_handler(CommandHandler("cot",      cmd_cot))
   application.add_handler(CommandHandler("13f",      cmd_13f))
+  application.add_handler(CommandHandler("testall",  cmd_testall))
 
   admin_id = str(ADMIN_ID) if ADMIN_ID else ""
   application.bot_data["admin_id"] = admin_id
