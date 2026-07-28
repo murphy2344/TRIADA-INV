@@ -7,6 +7,7 @@
 кроме явно помеченных как "live post test".
 """
 import asyncio
+import html
 import logging
 import os
 import time
@@ -518,15 +519,17 @@ async def run_full_selftest(bot, admin_id: str, scheduler=None) -> str:
     for (label, ok, detail) in all_results:
         if ok is None:
             # заголовок секции
-            lines.append(f"\n<b>{detail}</b>")
+            lines.append(f"\n<b>{html.escape(str(detail))}</b>")
             continue
         total += 1
+        safe_label  = html.escape(str(label))
+        safe_detail = html.escape(str(detail))
         if ok:
             passed += 1
-            lines.append(f"✅ {label}: {detail}")
+            lines.append(f"✅ {safe_label}: {safe_detail}")
         else:
             failed += 1
-            lines.append(f"❌ <b>{label}</b>: {detail}")
+            lines.append(f"❌ <b>{safe_label}</b>: {safe_detail}")
 
     pct = round(passed / total * 100) if total else 0
     summary_icon = "✅" if failed == 0 else ("⚠️" if failed <= 3 else "🔴")
