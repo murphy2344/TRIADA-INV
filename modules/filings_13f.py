@@ -63,26 +63,51 @@ def _find_latest_13f_accession(cik: str) -> str | None:
 
 
 def _get_filing_index(cik: str, accession: str) -> list[dict] | None:
-    """Получает индекс файлов внутри filing."""
+    """Получает список документов внутри filing.
+
+    Уровень 1: JSON-индекс EDGAR ({accession}-index.json).
+    Уровень 2: HTML-страница индекса EDGAR — парсим ссылки на .xml файлы
+               через regex, без зависимости от BeautifulSoup.
+    """
+    padded = _padded_cik(cik)
+    acc_clean = accession.replace("-", "")
+    cik_int = int(padded)
+    base_archive = f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{acc_clean}"
+
+    # ── Уровень 1: JSON индекс ──────────────────────────────────────────────
     try:
-        padded = _padded_cik(cik)
-        acc_clean = accession.replace("-", "")
-        url = f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={padded}&type=13F-HR&dateb=&owner=include&count=1&search_text="
-        # Используем прямой JSON API для индекса
-        idx_url = f"https://data.sec.gov/submissions/CIK{padded}.json"
-        # Строим URL к индексу конкретного filing
-        filing_url = (
-            f"https://www.sec.gov/Archives/edgar/data/{int(padded)}"
-            f"/{acc_clean}/{accession}-index.json"
-        )
-        resp = requests.get(filing_url, headers=SEC_HEADERS, timeout=TIMEOUT)
-        if resp.status_code != 200:
-            return None
-        idx_data = resp.json()
-        return idx_data.get("documents", [])
+        json_url = f"{base_archive}/{accession}-index.json"
+        resp = requests.get(json_url, headers=SEC_HEADERS, timeout=TIMEOUT)
+        if resp.status_code == 200:
+            docs = resp.json().get("documents", [])
+            if docs:
+                logger.info(f"13F: index JSON OK for CIK={cik}, {len(docs)} docs")
+                return docs
     except Exception as e:
-        logger.error(f"13F filing index error (CIK={cik}, acc={accession}): {e}")
-        return None
+        logger.warning(f"13F: JSON index failed for CIK={cik}: {e}")
+
+    # ── Уровень 2: HTML индекс (парсинг regex) ──────────────────────────────
+    try:
+        html_url = f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{acc_clean}/"
+        resp = requests.get(html_url, headers={**SEC_HEADERS, "Accept": "text/html"},
+                            timeout=TIMEOUT)
+        if resp.status_code == 200:
+            # Ищем все href на .xml файлы внутри архива
+            xml_links = re.findall(
+                rf'{re.escape(acc_clean)}/([^"\'>\s]+\.xml)',
+                resp.text, re.IGNORECASE,
+            )
+            # Fallback: любая ссылка на .xml в href
+            if not xml_links:
+                xml_links = re.findall(r'href="([^"]+\.xml)"', resp.text, re.IGNORECASE)
+                xml_links = [lnk.split("/")[-1] for lnk in xml_links]
+            if xml_links:
+                logger.info(f"13F: HTML index found {xml_links} for CIK={cik}")
+                return [{"documentName": name, "description": ""} for name in xml_links]
+    except Exception as e:
+        logger.warning(f"13F: HTML index failed for CIK={cik}: {e}")
+
+    return None
 
 
 def _parse_infotable_xml(xml_content: bytes) -> list[dict]:

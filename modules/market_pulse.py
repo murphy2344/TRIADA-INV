@@ -4,11 +4,15 @@
 USD/RUB — через Yahoo Finance (yfinance, USDRUB=X): даёт актуальный курс
 в любое время суток, а не только во время торгов на MOEX.
 
-IMOEX — через yfinance (IMOEX.ME): та же логика — работает круглосуточно,
-не зависит от доступности MOEX ISS API.
+IMOEX — через MOEX ISS API:
+  • marketdata.CURRENTVALUE — текущая цена (только во время торгов)
+  • securities.PREVPRICE    — цена предыдущего закрытия (всегда доступна)
+Таким образом IMOEX присутствует в закрепе всегда, с пометкой "(закр.)"
+если биржа не торгует прямо сейчас.
 """
 import logging
 import datetime
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -58,24 +62,59 @@ def fetch_usd_rub() -> float | None:
         return None
 
 
+IMOEX_MARKETDATA_URL = (
+    "https://iss.moex.com/iss/engines/stock/markets/index"
+    "/boards/SNDX/securities/IMOEX.json"
+)
+MOEX_TIMEOUT = 10
+
+
+def _moex_first_row(block: dict) -> dict | None:
+    if not block:
+        return None
+    columns = block.get("columns", [])
+    data    = block.get("data", [])
+    if not data:
+        return None
+    return dict(zip(columns, data[0]))
+
+
 def fetch_imoex() -> dict | None:
-    """IMOEX через yfinance (IMOEX.ME) — работает круглосуточно,
-    не зависит от доступности MOEX ISS API."""
+    """MOEX ISS — индекс Мосбиржи IMOEX.
+
+    Уровень 1: marketdata.CURRENTVALUE — текущая цена (только в торговые часы).
+    Уровень 2: securities.PREVPRICE     — цена закрытия предыдущей сессии
+               (всегда доступна, используется когда биржа закрыта).
+    Возвращает dict с ключами value, change_pct, is_closed (bool).
+    """
     try:
-        import yfinance as yf
-        ticker = yf.Ticker("IMOEX.ME")
-        hist = ticker.history(period="2d", interval="1h", auto_adjust=True)
-        if hist is None or hist.empty:
-            # Fallback: более широкое окно
-            hist = ticker.history(period="5d", interval="1d", auto_adjust=True)
-        if hist is None or hist.empty:
-            return None
-        current = float(hist["Close"].iloc[-1])
-        prev    = float(hist["Close"].iloc[-2]) if len(hist) > 1 else current
-        change_pct = round((current - prev) / prev * 100, 2) if prev else None
-        return {"value": round(current, 2), "change_pct": change_pct}
+        resp = requests.get(
+            IMOEX_MARKETDATA_URL,
+            params={
+                "iss.meta": "off",
+                "marketdata.columns": "SECID,CURRENTVALUE,LASTTOPREVPRICE",
+                "securities.columns": "SECID,PREVPRICE",
+            },
+            timeout=MOEX_TIMEOUT,
+        )
+        resp.raise_for_status()
+        js = resp.json()
+
+        md_row  = _moex_first_row(js.get("marketdata"))
+        sec_row = _moex_first_row(js.get("securities"))
+
+        current = md_row.get("CURRENTVALUE") if md_row else None
+        change  = md_row.get("LASTTOPREVPRICE") if md_row else None
+        prev    = sec_row.get("PREVPRICE") if sec_row else None
+
+        if current is not None:
+            return {"value": current, "change_pct": change, "is_closed": False}
+        if prev is not None:
+            return {"value": prev, "change_pct": None, "is_closed": True}
+        return None
+
     except Exception as e:
-        logger.error(f"IMOEX (yfinance) fetch error: {e}")
+        logger.error(f"IMOEX fetch error: {e}")
         return None
 
 
@@ -92,7 +131,8 @@ def build_pulse_text() -> str:
         pct = imoex.get("change_pct")
         sign = "+" if (pct or 0) >= 0 else ""
         pct_str = f" ({sign}{pct:.2f}%)" if pct is not None else ""
-        parts.append(f"IMOEX <code>{imoex['value']:,.2f}</code>{pct_str}")
+        closed_mark = " <i>закр.</i>" if imoex.get("is_closed") else ""
+        parts.append(f"IMOEX <code>{imoex['value']:,.2f}</code>{pct_str}{closed_mark}")
 
     if not parts:
         return "📌 Пульс рынка временно недоступен — обновим в следующий раз."

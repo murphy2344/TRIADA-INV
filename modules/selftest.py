@@ -160,7 +160,7 @@ def test_market_pulse() -> list[tuple[str, bool, str]]:
             imoex = market_pulse.fetch_imoex()
             detail2 = f"✅ {imoex['value']:,.2f}" if imoex else "❌ None"
             ok2 = imoex is not None
-        results.append(("Пульс / IMOEX (MOEX ISS)", ok2, detail2))
+        results.append(("Пульс / IMOEX", ok2, detail2))
 
         ok3, detail3 = _run("build_pulse_text", market_pulse.build_pulse_text)
         results.append(("Пульс / сборка текста", ok3, detail3 if ok3 else f"❌ {detail3}"))
