@@ -102,8 +102,17 @@ def build_scheduler(bot, admin_id: str) -> AsyncIOScheduler:
         args=[bot, admin_id], id="econ_calendar_today"
     )
 
-    # ТЕХНИЧЕСКИЕ АЛЕРТЫ — УБРАНЫ из расписания по запросу.
-    # Доступны только через ручную команду /alerts
+    # Технические алерты (RSI/SMA) — раз в час
+    scheduler.add_job(
+        pipeline.run_technical_alerts, "interval", hours=1,
+        args=[bot, admin_id], id="technical_alerts"
+    )
+
+    # Мониторинг выбранных Telegram-каналов — не чаще раза в 5 минут
+    scheduler.add_job(
+        pipeline.run_telegram_monitor, "interval", minutes=5,
+        args=[bot, admin_id], id="telegram_monitor"
+    )
 
     # Дайджест отчётностей компаний — раз в день, 09:30 МСК
     scheduler.add_job(
