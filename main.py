@@ -9,8 +9,8 @@ from flask import Flask, render_template_string
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-from config.config import BOT_TOKEN, ADMIN_USERNAME, ADMIN_ID, CHANNEL_ID
-from modules import pipeline, storage, dedup
+from config.config import BOT_TOKEN, ADMIN_USERNAME, ADMIN_ID, CHANNEL_ID, GROUP_CHAT_ID
+from modules import pipeline, storage, dedup, forum_topics
 from modules.scheduler import build_scheduler
 from modules.telegram_sender import notify_admin
 
@@ -452,13 +452,17 @@ async def main():
   admin_id = str(ADMIN_ID) if ADMIN_ID else ""
   application.bot_data["admin_id"] = admin_id
 
-  scheduler = build_scheduler(application.bot, admin_id)
-  scheduler.start()
-  logger.info("Scheduler started with all jobs (misfire_grace_time=600s)")
-
   async with application:
       await application.initialize()
       await application.start()
+
+      topic_ids = await forum_topics.ensure_topics_exist(application.bot, GROUP_CHAT_ID)
+      forum_topics.set_topic_ids(topic_ids)
+      logger.info("Forum topics initialized: %s", topic_ids)
+
+      scheduler = build_scheduler(application.bot, admin_id)
+      scheduler.start()
+      logger.info("Scheduler started with all jobs (misfire_grace_time=600s)")
 
       if admin_id:
           sqlite_ok = False
@@ -490,11 +494,13 @@ async def main():
               f"• Пульс рынка: обход кэша yfinance\n"
               f"• Finviz: детект заглушки 'Chart not available' по размеру\n"
               f"• Трек-рекорд: публикует результат проверки в канал\n"
-              f"• Технические алерты: убраны из авто, только /alerts\n"
+              f"• Технические алерты RSI/SMA: автоматически каждый час + /alerts\n"
               f"• Фото-заглушки: используются файлы из assets/stubs/\n\n"
               f"<b>Новые функции:</b>\n"
               f"• COT Report (CFTC, пятница 23:00 МСК) — /cot\n"
-              f"• 13F Filings (SEC EDGAR, пн 10:00 МСК) — /13f"
+              f"• 13F Filings (SEC EDGAR, пн 10:00 МСК) — /13f\n"
+              f"• Форум-темы: {len(forum_topics.TOPIC_NAMES)} тем (если GROUP_CHAT_ID настроен)\n"
+              f"• Telegram-мониторинг: каждые 5 минут (если TG_* настроены)"
           )
           await notify_admin(application.bot, admin_id, msg)
           logger.info(f"Startup diagnostic sent. SQLite={sqlite_ok}, Redis={redis_ok}")
