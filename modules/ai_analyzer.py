@@ -47,12 +47,24 @@ SYSTEM_PROMPT = """Ты — старший финансовый аналитик
 
 ПРАВИЛО subject_en: ВСЕГДА заполняй на английском для западных персон, компаний и событий.
 Примеры: "Donald Trump", "Jerome Powell Federal Reserve", "Tesla Motors", "OPEC meeting",
-"Kremlin Russia", "European Central Bank", "Goldman Sachs", "SpaceX Elon Musk"."""
+"Kremlin Russia", "European Central Bank", "Goldman Sachs", "SpaceX Elon Musk".
+
+ПРАВИЛО category и asset_class:
+- category допускает только geopolitics | company | market_move.
+- Заявление президента, политика или главы ЦБ о тарифах, санкциях, ставках или
+  экономической политике → category: geopolitics.
+- Заявление CEO/бизнес-лидера о своей компании → category: company.
+- Данные/движение рынка без этих случаев → category: market_move.
+- asset_class допускает crypto | commodity | equity | forex | macro | none.
+  Bitcoin/крипта → crypto; золото/нефть/серебро → commodity; акция → equity;
+  валютная пара → forex; общая инфляция/ВВП/ставка без конкретного актива → macro;
+  если класс определить нельзя → none. Определяй asset_class независимо от category."""
 
 ANALYSIS_SCHEMA = """{
   "relevant": true,
   "post_type": "urgent | hourly | market_move",
-  "category": "person | company | geopolitics | market_move",
+  "category": "geopolitics | company | market_move",
+  "asset_class": "crypto | commodity | equity | forex | macro | none",
   "subject": "имя/название на русском для контекста",
   "subject_en": "name in English for photo search (Wikipedia/Google)",
   "title": "короткий заголовок на русском (макс 60 символов)",
