@@ -64,8 +64,12 @@ def _chip_line(chip_data: dict | None) -> str:
     return f"<b>{ticker}</b>  <code>{last:,.2f}</code>  {arrow} <code>{sign}{pct:.2f}%</code>\n\n"
 
 
-def fmt_breaking(analysis: dict, source: str, url: str, chip_data: dict | None = None) -> str:
+def fmt_breaking(analysis: dict, source: str | None, url: str | None, chip_data: dict | None = None) -> str:
     assets = _e(analysis.get("affected_assets", []))
+    source_block = ""
+    if source:
+        link = f" • <a href='{html.escape(str(url or ''), quote=True)}'>читать</a>" if url else ""
+        source_block = f"\n\nИсточник: {_e(source)}{link}"
     return (
         f"{_chip_line(chip_data)}"
         f"<b>СРОЧНО — РЫНОК</b>\n\n"
@@ -76,8 +80,8 @@ def fmt_breaking(analysis: dict, source: str, url: str, chip_data: dict | None =
         f"<b>Затронутые активы:</b> {assets}\n\n"
         f"<b>Возможный сценарий:</b>\n{_e(analysis.get('scenario', ''))}\n\n"
         f"<b>Рекомендация:</b>\n{_rec(analysis)}"
-        f"</blockquote>\n\n"
-        f"Источник: {_e(source)} • <a href='{url}'>читать</a>\n\n"
+        f"</blockquote>"
+        f"{source_block}\n\n"
         f"#Срочно #Рынок #Инвестиции"
     )
 
