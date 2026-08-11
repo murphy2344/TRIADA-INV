@@ -4,30 +4,100 @@ TG_SESSION_STRING is a credential. Never log it or commit it. Generate it once
 locally with scripts/generate_session.py, then store it as a Render secret.
 """
 import logging
+import json
 import os
 
+from modules import dedup
 from modules import storage
 
 logger = logging.getLogger(__name__)
 
-TG_API_ID = os.environ.get("TG_API_ID", "")
-TG_API_HASH = os.environ.get("TG_API_HASH", "")
-TG_SESSION_STRING = os.environ.get("TG_SESSION_STRING", "")
-WATCHLIST_CHANNELS = [
+TG_API_ID = os.environ.get("TG_API_ID", "").strip()
+TG_API_HASH = os.environ.get("TG_API_HASH", "").strip()
+TG_SESSION_STRING = os.environ.get("TG_SESSION_STRING", "").strip()
+ENV_WATCHLIST_CHANNELS = [
     item.strip()
     for item in os.environ.get("TG_MONITOR_CHANNELS", "").split(",")
     if item.strip()
 ]
+CHANNELS_KEY = "triada:tg_monitor_channels"
 
 
-def is_configured() -> bool:
-    return bool(TG_API_ID and TG_API_HASH and TG_SESSION_STRING and WATCHLIST_CHANNELS)
+def normalize_channel(value: str) -> str:
+    """Accept @name, t.me/name, or https://t.me/name for public channels."""
+    value = (value or "").strip()
+    for prefix in ("https://t.me/", "http://t.me/", "t.me/", "telegram.me/"):
+        if value.lower().startswith(prefix):
+            value = value[len(prefix):]
+            break
+    value = value.split("?", 1)[0].split("/", 1)[0].strip()
+    if value.startswith("@"):
+        value = value[1:]
+    return value
+
+
+def _valid_channel(value: str) -> bool:
+    return bool(value) and not value.startswith(("+", "joinchat/")) and all(
+        char.isalnum() or char == "_" for char in value
+    )
+
+
+async def get_watchlist() -> list[str]:
+    """Read the dynamic watchlist, falling back to Render's initial env value."""
+    if dedup.USE_REDIS:
+        stored = await dedup._redis(["GET", CHANNELS_KEY])
+        if stored is not None:
+            try:
+                channels = json.loads(stored)
+                if isinstance(channels, list):
+                    return [str(item) for item in channels if str(item)]
+            except (TypeError, json.JSONDecodeError):
+                logger.warning("Invalid Telegram monitor watchlist in Redis")
+    return list(ENV_WATCHLIST_CHANNELS)
+
+
+async def set_watchlist(channels: list[str]) -> list[str]:
+    cleaned = []
+    for channel in channels:
+        normalized = normalize_channel(channel)
+        if _valid_channel(normalized) and normalized not in cleaned:
+            cleaned.append(normalized)
+    cleaned.sort(key=str.casefold)
+    if dedup.USE_REDIS:
+        await dedup._redis(["SET", CHANNELS_KEY, json.dumps(cleaned)])
+    return cleaned
+
+
+async def add_channel(value: str) -> tuple[bool, str]:
+    normalized = normalize_channel(value)
+    if not _valid_channel(normalized):
+        return False, "Нужен публичный канал в формате @channel или https://t.me/channel."
+    channels = await get_watchlist()
+    if normalized.casefold() in {item.casefold() for item in channels}:
+        return False, f"Канал @{normalized} уже есть в списке."
+    await set_watchlist(channels + [normalized])
+    return True, f"Канал @{normalized} добавлен. Проверка выполняется каждые 5 минут."
+
+
+async def remove_channel(value: str) -> tuple[bool, str]:
+    normalized = normalize_channel(value)
+    channels = await get_watchlist()
+    remaining = [item for item in channels if item.casefold() != normalized.casefold()]
+    if len(remaining) == len(channels):
+        return False, f"Канала @{normalized} нет в списке."
+    await set_watchlist(remaining)
+    return True, f"Канал @{normalized} удалён."
+
+
+async def is_configured() -> bool:
+    return bool(TG_API_ID and TG_API_HASH and TG_SESSION_STRING and await get_watchlist())
 
 
 async def fetch_new_messages() -> list[dict]:
     """Return unseen text messages and advance per-channel cursors."""
-    if not is_configured():
-        logger.info("Telegram monitor disabled: TG_* or TG_MONITOR_CHANNELS is missing")
+    watchlist = await get_watchlist()
+    if not TG_API_ID or not TG_API_HASH or not TG_SESSION_STRING or not watchlist:
+        logger.info("Telegram monitor disabled: TG_* or the channel watchlist is missing")
         return []
 
     try:
@@ -51,7 +121,7 @@ async def fetch_new_messages() -> list[dict]:
             logger.error("Telegram monitor session is not authorized")
             return []
 
-        for channel in WATCHLIST_CHANNELS:
+        for channel in watchlist:
             cursor_key = f"tg_monitor_last_id:{channel}"
             try:
                 last_id = int(await storage.get_meta(cursor_key) or 0)

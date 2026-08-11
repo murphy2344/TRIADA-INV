@@ -10,7 +10,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 from config.config import BOT_TOKEN, ADMIN_USERNAME, ADMIN_ID, CHANNEL_ID, GROUP_CHAT_ID
-from modules import pipeline, storage, dedup, forum_topics
+from modules import pipeline, storage, dedup, forum_topics, telegram_monitor
 from modules.scheduler import build_scheduler
 from modules.telegram_sender import notify_admin
 
@@ -125,12 +125,54 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
       "/heatmap — тепловая карта секторов\n"
       "/cot — позиции крупных игроков (COT/CFTC)\n"
       "/13f — отчёты крупных фондов (13F/SEC)\n\n"
+      "<b>Мониторинг Telegram-каналов:</b>\n"
+      "/channels — список каналов\n"
+      "/addchannel @channel — добавить канал\n"
+      "/removechannel @channel — удалить канал\n\n"
       "<b>Служебные:</b>\n"
       "/status — статус бота и статистика\n"
       "/test — быстрый тест (breaking → hourly)\n\n"
       "Бот публикует автоматически по расписанию МСК."
   )
   await update.message.reply_text(text, parse_mode="HTML")
+
+
+@admin_only
+async def cmd_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  channels = await telegram_monitor.get_watchlist()
+  if not channels:
+      text = (
+          "📡 Список каналов пуст.\n"
+          "Добавьте публичный канал: /addchannel @channel"
+      )
+  else:
+      text = "📡 <b>Каналы мониторинга:</b>\n" + "\n".join(
+          f"• @{channel}" for channel in channels
+      )
+  await update.message.reply_text(text, parse_mode="HTML")
+
+
+@admin_only
+async def cmd_addchannel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  value = " ".join(context.args).strip()
+  if not value:
+      await update.message.reply_text(
+          "Использование: /addchannel @channel\n"
+          "Также можно отправить публичную ссылку https://t.me/channel"
+      )
+      return
+  ok, message = await telegram_monitor.add_channel(value)
+  await update.message.reply_text(("✅ " if ok else "⚠️ ") + message)
+
+
+@admin_only
+async def cmd_removechannel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  value = " ".join(context.args).strip()
+  if not value:
+      await update.message.reply_text("Использование: /removechannel @channel")
+      return
+  ok, message = await telegram_monitor.remove_channel(value)
+  await update.message.reply_text(("✅ " if ok else "⚠️ ") + message)
 
 
 @admin_only
@@ -448,6 +490,9 @@ async def main():
   application.add_handler(CommandHandler("cot",      cmd_cot))
   application.add_handler(CommandHandler("13f",      cmd_13f))
   application.add_handler(CommandHandler("testall",  cmd_testall))
+  application.add_handler(CommandHandler("channels", cmd_channels))
+  application.add_handler(CommandHandler("addchannel", cmd_addchannel))
+  application.add_handler(CommandHandler("removechannel", cmd_removechannel))
 
   admin_id = str(ADMIN_ID) if ADMIN_ID else ""
   application.bot_data["admin_id"] = admin_id

@@ -8,8 +8,8 @@ from modules.storage import is_published, get_recent_titles, mark_published as s
 
 logger = logging.getLogger(__name__)
 
-UPSTASH_URL = os.environ.get("UPSTASH_REDIS_REST_URL", "").rstrip("/")
-UPSTASH_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
+UPSTASH_URL = os.environ.get("UPSTASH_REDIS_REST_URL", "").strip().strip('"').rstrip("/")
+UPSTASH_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "").strip().strip('"')
 USE_REDIS = bool(UPSTASH_URL and UPSTASH_TOKEN)
 PREFIX = "triada"
 TTL = 21600  # 6 hours
