@@ -53,6 +53,15 @@ async def get_watchlist() -> list[str]:
                     return [str(item) for item in channels if str(item)]
             except (TypeError, json.JSONDecodeError):
                 logger.warning("Invalid Telegram monitor watchlist in Redis")
+    else:
+        stored = await storage.get_meta(CHANNELS_KEY)
+        if stored:
+            try:
+                channels = json.loads(stored)
+                if isinstance(channels, list):
+                    return [str(item) for item in channels if str(item)]
+            except (TypeError, json.JSONDecodeError):
+                logger.warning("Invalid Telegram monitor watchlist in SQLite")
     return list(ENV_WATCHLIST_CHANNELS)
 
 
@@ -65,6 +74,8 @@ async def set_watchlist(channels: list[str]) -> list[str]:
     cleaned.sort(key=str.casefold)
     if dedup.USE_REDIS:
         await dedup._redis(["SET", CHANNELS_KEY, json.dumps(cleaned)])
+    else:
+        await storage.set_meta(CHANNELS_KEY, json.dumps(cleaned))
     return cleaned
 
 
