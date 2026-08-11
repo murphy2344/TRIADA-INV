@@ -53,15 +53,6 @@ async def get_watchlist() -> list[str]:
                     return [str(item) for item in channels if str(item)]
             except (TypeError, json.JSONDecodeError):
                 logger.warning("Invalid Telegram monitor watchlist in Redis")
-    else:
-        stored = await storage.get_meta(CHANNELS_KEY)
-        if stored:
-            try:
-                channels = json.loads(stored)
-                if isinstance(channels, list):
-                    return [str(item) for item in channels if str(item)]
-            except (TypeError, json.JSONDecodeError):
-                logger.warning("Invalid Telegram monitor watchlist in SQLite")
     return list(ENV_WATCHLIST_CHANNELS)
 
 
@@ -74,8 +65,6 @@ async def set_watchlist(channels: list[str]) -> list[str]:
     cleaned.sort(key=str.casefold)
     if dedup.USE_REDIS:
         await dedup._redis(["SET", CHANNELS_KEY, json.dumps(cleaned)])
-    else:
-        await storage.set_meta(CHANNELS_KEY, json.dumps(cleaned))
     return cleaned
 
 
@@ -137,6 +126,14 @@ async def fetch_new_messages() -> list[dict]:
             try:
                 last_id = int(await storage.get_meta(cursor_key) or 0)
                 entity = await client.get_entity(channel)
+                # On the first scan, establish a baseline at the newest
+                # message. Do not flood the destination with channel history.
+                if last_id == 0:
+                    latest = await client.get_messages(entity, limit=1)
+                    latest_id = int(latest[0].id) if latest else 0
+                    if latest_id:
+                        await storage.set_meta(cursor_key, str(latest_id))
+                    continue
                 max_seen = last_id
                 async for message in client.iter_messages(entity, min_id=last_id, reverse=True):
                     max_seen = max(max_seen, int(message.id))
