@@ -4,7 +4,7 @@ from datetime import datetime
 import pytz
 
 from modules import news_sources, ai_analyzer, charting, media, formatter
-from modules import dedup, storage, telegram_sender, critic, moex_leaders, market_pulse, econ_calendar, earnings, sector_heatmap
+from modules import dedup, storage, telegram_sender, critic, moex_leaders, market_pulse, econ_calendar, earnings, sector_heatmap, forum_topics, telegram_monitor
 from config.config import ADMIN_ID
 
 logger = logging.getLogger(__name__)
@@ -19,6 +19,24 @@ def _is_relevant(analysis: dict) -> bool:
     if analysis.get("post_type") == "skip":
         return False
     return True
+
+
+def _topic_kwargs(analysis: dict | None = None) -> dict:
+    """Destination kwargs: topic posts go to the forum group; general posts omit thread id."""
+    kwargs = {"chat_id": forum_topics.target_chat_id()}
+    if analysis:
+        thread_id = forum_topics.get_topic_id(forum_topics.route_topic(analysis))
+        if thread_id is not None:
+            kwargs["message_thread_id"] = thread_id
+    return kwargs
+
+
+def _topic_kwargs_for_key(topic_key: str) -> dict:
+    kwargs = {"chat_id": forum_topics.target_chat_id()}
+    thread_id = forum_topics.get_topic_id(topic_key)
+    if thread_id is not None:
+        kwargs["message_thread_id"] = thread_id
+    return kwargs
 
 
 async def _get_media(
@@ -63,67 +81,84 @@ async def _track_recommendation(analysis: dict):
     )
 
 
+async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
+    if await dedup.is_duplicate(item["id"], item["title"]):
+        return False
+
+    text = f"{item['title']}. {item.get('summary', '')}"
+    analysis = await asyncio.to_thread(ai_analyzer.analyze, text, "BREAKING")
+    if not _is_relevant(analysis):
+        logger.info("Skipped (not relevant): %s", item["title"][:60])
+        return False
+
+    subject_en = analysis.get("subject_en", "")
+    category = analysis.get("category", "market_move")
+    if await dedup.is_duplicate_event(subject_en, category):
+        logger.info("Skipped (duplicate event): %s / %s", subject_en, category)
+        return False
+
+    if analysis.get("impact_level") == "high":
+        critic_result = await asyncio.to_thread(
+            critic.review,
+            analysis.get("summary", ""),
+            analysis.get("recommendation", "neutral"),
+            analysis.get("recommendation_text", ""),
+        )
+        if critic_result:
+            analysis["_critic"] = critic_result
+
+    media_obj = await _get_media(analysis, rss_image=item.get("rss_image"), post_category="urgent")
+    if media_obj is None:
+        media_obj = "assets/stubs/breaking.jpg"
+
+    chip_data = None
+    ticker = analysis.get("ticker")
+    if ticker:
+        try:
+            chip_data = await asyncio.to_thread(charting.get_sparkline_data, ticker, "1d")
+        except Exception as exc:
+            logger.warning("Chip data fetch failed for %s: %s", ticker, exc)
+
+    source = item.get("source") or ""
+    url = item.get("url") or ""
+    caption = formatter.fmt_breaking(analysis, source, url, chip_data)
+    ok = await telegram_sender.send_photo_text(bot, media_obj, caption, **_topic_kwargs(analysis))
+    if not ok:
+        if admin_id:
+            await telegram_sender.notify_admin(bot, admin_id, f"❌ Пост не вышел (BREAKING):\n<b>{item['title'][:100]}</b>")
+        return False
+
+    await storage.mark_published(item["id"], item["title"], source, url, "BREAKING")
+    await dedup.mark_as_published(item["id"], item["title"])
+    await dedup.mark_event_published(subject_en, category)
+    await storage.increment_stats()
+    await _track_recommendation(analysis)
+    return True
+
+
 async def run_breaking(bot, admin_id: str = None):
-    # Синхронный RSS-запрос — в отдельном потоке, чтобы не блокировать event loop
     news_list = await asyncio.to_thread(news_sources.fetch_breaking_news, 2)
     posted = 0
     for item in news_list:
-        if await dedup.is_duplicate(item["id"], item["title"]):
-            continue
-
-        text = f"{item['title']}. {item.get('summary', '')}"
-        analysis = await asyncio.to_thread(ai_analyzer.analyze, text, "BREAKING")
-
-        if not _is_relevant(analysis):
-            logger.info(f"Skipped (not relevant): {item['title'][:60]}")
-            continue
-
-        subject_en = analysis.get("subject_en", "")
-        category = analysis.get("category", "market_move")
-        if await dedup.is_duplicate_event(subject_en, category):
-            logger.info(f"Skipped (duplicate event): {subject_en} / {category}")
-            continue
-
-        if analysis.get("impact_level") == "high":
-            critic_result = await asyncio.to_thread(
-                critic.review,
-                analysis.get("summary", ""),
-                analysis.get("recommendation", "neutral"),
-                analysis.get("recommendation_text", ""),
-            )
-            if critic_result:
-                analysis["_critic"] = critic_result
-
-        media_obj = await _get_media(analysis, rss_image=item.get("rss_image"), post_category="urgent")
-        # Если ни один источник не нашёл медиа — используем стаб-файл
-        if media_obj is None:
-            media_obj = "assets/stubs/breaking.jpg"
-
-        chip_data = None
-        ticker = analysis.get("ticker")
-        if ticker:
-            try:
-                chip_data = await asyncio.to_thread(charting.get_sparkline_data, ticker, "1d")
-            except Exception as e:
-                logger.warning(f"Chip data fetch failed for {ticker}: {e}")
-
-        caption = formatter.fmt_breaking(analysis, item["source"], item["url"], chip_data)
-
-        ok = await telegram_sender.send_photo_text(bot, media_obj, caption)
-        if ok:
-            await storage.mark_published(item["id"], item["title"], item["source"], item["url"], "BREAKING")
-            await dedup.mark_as_published(item["id"], item["title"])
-            await dedup.mark_event_published(subject_en, category)
-            await storage.increment_stats()
-            await _track_recommendation(analysis)
+        if await _publish_breaking_item(bot, item, admin_id):
             posted += 1
-        else:
-            if admin_id:
-                await telegram_sender.notify_admin(
-                    bot, admin_id,
-                    f"❌ Пост не вышел (BREAKING):\n<b>{item['title'][:100]}</b>\nОшибка отправки."
-                )
     return posted
+
+
+async def run_telegram_monitor(bot, admin_id: str = None) -> int:
+    """Fetch selected Telegram channels and send them through the BREAKING pipeline."""
+    try:
+        items = await telegram_monitor.fetch_new_messages()
+        posted = 0
+        for item in items:
+            if await _publish_breaking_item(bot, item, admin_id):
+                posted += 1
+        return posted
+    except Exception as exc:
+        logger.exception("run_telegram_monitor error")
+        if admin_id:
+            await telegram_sender.notify_admin(bot, admin_id, f"❌ Telegram-мониторинг: {exc}")
+        return 0
 
 
 async def run_hourly(bot, admin_id: str = None):
@@ -161,7 +196,7 @@ async def run_hourly(bot, admin_id: str = None):
     header = formatter.fmt_hourly_header(now)
     body   = formatter.fmt_hourly_body(analyses)
     photo  = "assets/stubs/hourly.jpg"
-    ok     = await telegram_sender.send_two_messages(bot, photo, header, body)
+    ok     = await telegram_sender.send_two_messages(bot, photo, header, body, **_topic_kwargs(analyses[0]))
 
     if ok:
         for item in fresh:
@@ -331,7 +366,7 @@ async def run_earnings_digest(bot, admin_id: str = None) -> int:
         upcoming = await asyncio.to_thread(earnings.check_upcoming, 3)
         text_upcoming = formatter.fmt_earnings_upcoming(upcoming)
         if text_upcoming:
-            if await telegram_sender.send_text(bot, text_upcoming):
+            if await telegram_sender.send_text(bot, text_upcoming, **_topic_kwargs_for_key("companies")):
                 await storage.increment_stats()
                 posted += 1
 
@@ -344,7 +379,7 @@ async def run_earnings_digest(bot, admin_id: str = None) -> int:
                 await storage.set_meta(key, "posted")
         text_recent = formatter.fmt_earnings_recent(new_recent)
         if text_recent:
-            if await telegram_sender.send_text(bot, text_recent):
+            if await telegram_sender.send_text(bot, text_recent, **_topic_kwargs_for_key("companies")):
                 await storage.increment_stats()
                 posted += 1
 
@@ -379,7 +414,7 @@ async def run_technical_alerts(bot, admin_id: str = None) -> int:
                 continue
 
             text = formatter.fmt_technical_alert(ticker, new_signals)
-            ok = await telegram_sender.send_text(bot, text)
+            ok = await telegram_sender.send_text(bot, text, **_topic_kwargs({"ticker": ticker, "asset_class": "commodity" if ticker in {"GC=F", "CL=F"} else ("crypto" if ticker == "BTC-USD" else "equity") }))
             if ok:
                 await storage.increment_stats()
                 posted += 1
@@ -476,7 +511,7 @@ async def run_cot_report(bot, admin_id: str = None) -> int:
         text = formatter.fmt_cot_report(items)
         if not text:
             return 0
-        ok = await telegram_sender.send_text(bot, text)
+        ok = await telegram_sender.send_text(bot, text, **_topic_kwargs_for_key("commodities"))
         if ok:
             await storage.increment_stats()
             return 1
@@ -499,7 +534,7 @@ async def run_13f_digest(bot, admin_id: str = None) -> int:
         text = formatter.fmt_13f_digest(items)
         if not text:
             return 0
-        ok = await telegram_sender.send_text(bot, text)
+        ok = await telegram_sender.send_text(bot, text, **_topic_kwargs_for_key("companies"))
         if ok:
             await storage.increment_stats()
             return 1
