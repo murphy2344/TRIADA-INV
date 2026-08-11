@@ -1,9 +1,11 @@
 import json
 import logging
+import time
 from groq import Groq
 from config.config import GROQ_API_KEY, GROQ_MODEL, GROQ_FALLBACK_MODEL
 
 logger = logging.getLogger(__name__)
+_PRIMARY_RATE_LIMITED_UNTIL = 0.0
 
 SYSTEM_PROMPT = """Ты — старший финансовый аналитик инвестиционного дома TRIADA INVESTING.
 Анализируй новости строго на русском языке. Исходный текст может быть на английском — ВСЕГДА переводи.
@@ -85,14 +87,19 @@ def analyze(raw_text: str, category: str = "BREAKING") -> dict | None:
         logger.error("GROQ_API_KEY not set")
         return None
 
-    client = Groq(api_key=GROQ_API_KEY)
+    global _PRIMARY_RATE_LIMITED_UNTIL
+    client = Groq(api_key=GROQ_API_KEY, max_retries=0)
     prompt = f"""Категория поста: {category}
 Новость: {raw_text}
 
 Верни JSON строго по схеме:
 {ANALYSIS_SCHEMA}"""
 
-    for model in [GROQ_MODEL, GROQ_FALLBACK_MODEL]:
+    models = [GROQ_MODEL, GROQ_FALLBACK_MODEL]
+    if time.monotonic() < _PRIMARY_RATE_LIMITED_UNTIL:
+        models = [GROQ_FALLBACK_MODEL]
+
+    for model in models:
         try:
             response = client.chat.completions.create(
                 model=model,
@@ -109,7 +116,13 @@ def analyze(raw_text: str, category: str = "BREAKING") -> dict | None:
             logger.info(f"AI ({model}): relevant={result.get('relevant')}, title={result.get('title', '')[:40]}")
             return result
         except Exception as e:
-            logger.error(f"Groq error ({model}): {e}")
+            if model == GROQ_MODEL and ("429" in str(e) or "rate_limit" in str(e).lower()):
+                # Avoid hammering an exhausted daily quota on every 2-minute
+                # breaking-news cycle. The fallback model remains available.
+                _PRIMARY_RATE_LIMITED_UNTIL = time.monotonic() + 45 * 60
+                logger.warning("Groq primary model rate-limited; using fallback for 45 minutes")
+            else:
+                logger.error(f"Groq error ({model}): {e}")
             continue
 
     return None

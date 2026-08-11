@@ -4,7 +4,7 @@ import logging
 from telegram.error import TelegramError
 
 from config.config import ADMIN_ID, CHANNEL_ID, GROUP_CHAT_ID
-from modules import storage
+from modules import dedup, storage
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,7 @@ TOPIC_NAMES = {
 }
 
 _TOPIC_IDS: dict[str, int] = {}
+REDIS_TOPIC_PREFIX = "triada:forum_topic"
 
 
 def target_chat_id() -> str:
@@ -52,7 +53,7 @@ def get_topic_id(topic_key: str) -> int | None:
 
 
 async def ensure_topics_exist(bot, group_chat_id) -> dict[str, int]:
-    """Load topic IDs from bot_meta and create missing forum topics once."""
+    """Load topic IDs persistently and create missing forum topics once."""
     if not group_chat_id:
         logger.info("GROUP_CHAT_ID is not configured; forum topics are disabled")
         set_topic_ids({})
@@ -60,8 +61,13 @@ async def ensure_topics_exist(bot, group_chat_id) -> dict[str, int]:
 
     result: dict[str, int] = {}
     for key, name in TOPIC_NAMES.items():
-        meta_key = f"topic_id:{key}"
-        saved = await storage.get_meta(meta_key)
+        # Render's local filesystem is ephemeral. Prefer Upstash so a restart
+        # does not create a second copy of every forum topic.
+        redis_key = f"{REDIS_TOPIC_PREFIX}:{group_chat_id}:{key}"
+        meta_key = f"topic_id:{group_chat_id}:{key}"
+        saved = await dedup._redis(["GET", redis_key]) if dedup.USE_REDIS else None
+        if not saved:
+            saved = await storage.get_meta(meta_key)
         if saved:
             try:
                 result[key] = int(saved)
@@ -73,6 +79,8 @@ async def ensure_topics_exist(bot, group_chat_id) -> dict[str, int]:
             topic = await bot.create_forum_topic(chat_id=group_chat_id, name=name)
             thread_id = int(topic.message_thread_id)
             await storage.set_meta(meta_key, str(thread_id))
+            if dedup.USE_REDIS:
+                await dedup._redis(["SET", redis_key, str(thread_id)])
             result[key] = thread_id
             logger.info("Forum topic ready: %s=%s", key, thread_id)
         except TelegramError as exc:

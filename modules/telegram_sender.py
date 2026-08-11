@@ -18,6 +18,17 @@ async def send_text(bot: Bot, text: str, chat_id: str = None, message_thread_id:
                                disable_web_page_preview=False, **kwargs)
         return True
     except TelegramError as e:
+        if message_thread_id is not None and "Message thread not found" in str(e):
+            logger.warning("Forum topic %s is unavailable; sending message to group without topic", message_thread_id)
+            try:
+                await bot.send_message(
+                    chat_id=cid, text=text, parse_mode=ParseMode.HTML,
+                    disable_web_page_preview=False,
+                )
+                return True
+            except TelegramError as retry_error:
+                logger.error(f"send_text fallback error: {retry_error}")
+                return False
         logger.error(f"send_text error: {e}")
         return False
 
@@ -39,6 +50,25 @@ async def send_photo_text(bot: Bot, media, caption: str, chat_id: str = None, me
             await bot.send_message(chat_id=cid, text=caption, parse_mode=ParseMode.HTML, **kwargs)
         return True
     except TelegramError as e:
+        if message_thread_id is not None and "Message thread not found" in str(e):
+            logger.warning("Forum topic %s is unavailable; retrying post without topic", message_thread_id)
+            try:
+                if isinstance(media, bytes):
+                    await bot.send_photo(chat_id=cid, photo=media, caption=caption,
+                                         parse_mode=ParseMode.HTML)
+                elif isinstance(media, str) and media.startswith("http"):
+                    await bot.send_photo(chat_id=cid, photo=media, caption=caption,
+                                         parse_mode=ParseMode.HTML)
+                elif isinstance(media, str) and media.endswith((".jpg", ".jpeg", ".png")):
+                    with open(media, "rb") as f:
+                        await bot.send_photo(chat_id=cid, photo=f, caption=caption,
+                                             parse_mode=ParseMode.HTML)
+                else:
+                    await bot.send_message(chat_id=cid, text=caption, parse_mode=ParseMode.HTML)
+                return True
+            except TelegramError as retry_error:
+                logger.error(f"send_photo fallback error: {retry_error}")
+                return False
         logger.error(f"send_photo error: {e}")
         try:
             await bot.send_message(chat_id=cid, text=caption, parse_mode=ParseMode.HTML, **kwargs)
