@@ -5,6 +5,7 @@ load_dotenv()
 
 BOT_TOKEN      = os.environ.get("BOT_TOKEN", "")
 CHANNEL_ID     = os.environ.get("CHANNEL_ID", "")
+GROUP_CHAT_ID  = os.environ.get("GROUP_CHAT_ID", "")
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "")
 ADMIN_ID       = os.environ.get("ADMIN_ID", "")
 
@@ -15,6 +16,12 @@ GROQ_FALLBACK_MODEL = "llama-3.1-8b-instant"
 # Google Gemini — AI-критик, ДРУГАЯ модель для проверки рекомендаций Apollo.
 # Бесплатно, без карты: aistudio.google.com/apikey
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+
+# Optional Telegram forum group / User API monitor
+TG_API_ID = os.environ.get("TG_API_ID", "")
+TG_API_HASH = os.environ.get("TG_API_HASH", "")
+TG_SESSION_STRING = os.environ.get("TG_SESSION_STRING", "")
+TG_MONITOR_CHANNELS = os.environ.get("TG_MONITOR_CHANNELS", "")
 
 # FRED (Федеральный резервный банк Сент-Луиса) — экономический календарь.
 # Бесплатно, без карты, мгновенная регистрация: fredaccount.stlouisfed.org/apikeys
