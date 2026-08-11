@@ -1,4 +1,5 @@
 import asyncio
+import html
 import logging
 from datetime import datetime
 import pytz
@@ -82,58 +83,84 @@ async def _track_recommendation(analysis: dict):
 
 
 async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
-    if await dedup.is_duplicate(item["id"], item["title"]):
-        return False
+    title = str(item.get("title") or "")[:180]
 
-    text = f"{item['title']}. {item.get('summary', '')}"
-    analysis = await asyncio.to_thread(ai_analyzer.analyze, text, "BREAKING")
-    if not _is_relevant(analysis):
-        logger.info("Skipped (not relevant): %s", item["title"][:60])
-        return False
-
-    subject_en = analysis.get("subject_en", "")
-    category = analysis.get("category", "market_move")
-    if await dedup.is_duplicate_event(subject_en, category):
-        logger.info("Skipped (duplicate event): %s / %s", subject_en, category)
-        return False
-
-    if analysis.get("impact_level") == "high":
-        critic_result = await asyncio.to_thread(
-            critic.review,
-            analysis.get("summary", ""),
-            analysis.get("recommendation", "neutral"),
-            analysis.get("recommendation_text", ""),
-        )
-        if critic_result:
-            analysis["_critic"] = critic_result
-
-    media_obj = await _get_media(analysis, rss_image=item.get("rss_image"), post_category="urgent")
-    if media_obj is None:
-        media_obj = "assets/stubs/breaking.jpg"
-
-    chip_data = None
-    ticker = analysis.get("ticker")
-    if ticker:
-        try:
-            chip_data = await asyncio.to_thread(charting.get_sparkline_data, ticker, "1d")
-        except Exception as exc:
-            logger.warning("Chip data fetch failed for %s: %s", ticker, exc)
-
-    source = item.get("source") or ""
-    url = item.get("url") or ""
-    caption = formatter.fmt_breaking(analysis, source, url, chip_data)
-    ok = await telegram_sender.send_photo_text(bot, media_obj, caption, **_topic_kwargs(analysis))
-    if not ok:
+    async def fail(stage: str, exc) -> bool:
+        detail = f"{type(exc).__name__}: {exc}" if isinstance(exc, Exception) else str(exc)
+        logger.exception("BREAKING failed at %s for %s: %s", stage, title[:80], detail)
         if admin_id:
-            await telegram_sender.notify_admin(bot, admin_id, f"❌ Пост не вышел (BREAKING):\n<b>{item['title'][:100]}</b>")
+            await telegram_sender.notify_admin(
+                bot,
+                admin_id,
+                (
+                    "❌ <b>Пост не вышел (BREAKING)</b>\n"
+                    f"<b>{html.escape(title)}</b>\n"
+                    f"Этап: {html.escape(stage)}\n"
+                    f"Причина: <code>{html.escape(detail[:700])}</code>"
+                ),
+            )
         return False
 
-    await storage.mark_published(item["id"], item["title"], source, url, "BREAKING")
-    await dedup.mark_as_published(item["id"], item["title"])
-    await dedup.mark_event_published(subject_en, category)
-    await storage.increment_stats()
-    await _track_recommendation(analysis)
-    return True
+    try:
+        if await dedup.is_duplicate(item["id"], item["title"]):
+            return False
+
+        text = f"{item['title']}. {item.get('summary', '')}"
+        analysis = await asyncio.to_thread(ai_analyzer.analyze, text, "BREAKING")
+        if not _is_relevant(analysis):
+            logger.info("Skipped (not relevant): %s", title[:60])
+            return False
+
+        subject_en = analysis.get("subject_en", "")
+        category = analysis.get("category", "market_move")
+        if await dedup.is_duplicate_event(subject_en, category):
+            logger.info("Skipped (duplicate event): %s / %s", subject_en, category)
+            return False
+
+        if analysis.get("impact_level") == "high":
+            critic_result = await asyncio.to_thread(
+                critic.review,
+                analysis.get("summary", ""),
+                analysis.get("recommendation", "neutral"),
+                analysis.get("recommendation_text", ""),
+            )
+            if critic_result:
+                analysis["_critic"] = critic_result
+
+        media_obj = await _get_media(
+            analysis, rss_image=item.get("rss_image"), post_category="urgent"
+        )
+        if media_obj is None:
+            media_obj = "assets/stubs/breaking.jpg"
+
+        chip_data = None
+        ticker = analysis.get("ticker")
+        if ticker:
+            try:
+                chip_data = await asyncio.to_thread(charting.get_sparkline_data, ticker, "1d")
+            except Exception as exc:
+                logger.warning("Chip data fetch failed for %s: %s", ticker, exc)
+
+        source = item.get("source") or ""
+        url = item.get("url") or ""
+        caption = formatter.fmt_breaking(analysis, source, url, chip_data)
+        ok, send_detail = await telegram_sender.send_photo_text_detailed(
+            bot, media_obj, caption, **_topic_kwargs(analysis)
+        )
+        if not ok:
+            await fail("Telegram отправка", send_detail)
+            return False
+        if send_detail:
+            logger.warning("BREAKING published with fallback: %s", send_detail)
+
+        await storage.mark_published(item["id"], item["title"], source, url, "BREAKING")
+        await dedup.mark_as_published(item["id"], item["title"])
+        await dedup.mark_event_published(subject_en, category)
+        await storage.increment_stats()
+        await _track_recommendation(analysis)
+        return True
+    except Exception as exc:
+        return await fail("обработка BREAKING", exc)
 
 
 async def run_breaking(bot, admin_id: str = None):

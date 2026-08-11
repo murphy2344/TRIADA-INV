@@ -76,6 +76,42 @@ async def _redis_mark(news_id: str, title: str):
     await _redis(["EXPIRE", f"{PREFIX}:titles", "86400"])
 
 
+async def acquire_lock(name: str, owner: str, ttl: int = 120) -> bool:
+    """Acquire a short-lived distributed lock in Upstash Redis.
+
+    This is used for startup-only critical sections such as forum topic
+    creation and Telegram long polling.  SET NX makes two overlapping Render
+    processes mutually exclusive during a deploy.
+    """
+    if not USE_REDIS:
+        return False
+    result = await _redis(
+        ["SET", f"{PREFIX}:lock:{name}", owner, "NX", "EX", str(ttl)]
+    )
+    return result == "OK"
+
+
+async def renew_lock(name: str, owner: str, ttl: int = 120) -> bool:
+    """Renew a lock only while it still exists and belongs to this process."""
+    if not USE_REDIS:
+        return False
+    current = await _redis(["GET", f"{PREFIX}:lock:{name}"])
+    if current != owner:
+        return False
+    return await _redis(
+        ["SET", f"{PREFIX}:lock:{name}", owner, "XX", "EX", str(ttl)]
+    ) == "OK"
+
+
+async def release_lock(name: str, owner: str) -> None:
+    """Release a lock only if it is still owned by this process."""
+    if not USE_REDIS:
+        return
+    current = await _redis(["GET", f"{PREFIX}:lock:{name}"])
+    if current == owner:
+        await _redis(["DEL", f"{PREFIX}:lock:{name}"])
+
+
 # ── Public interface ───────────────────────────────────────────────────────────
 
 async def is_duplicate(news_id: str, title: str, threshold: float = 0.6) -> bool:

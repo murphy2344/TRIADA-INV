@@ -1,7 +1,9 @@
 import asyncio
+import html
 import logging
 import os
 import threading
+import uuid
 from datetime import datetime
 
 import pytz
@@ -550,11 +552,56 @@ async def main():
           await notify_admin(application.bot, admin_id, msg)
           logger.info(f"Startup diagnostic sent. SQLite={sqlite_ok}, Redis={redis_ok}")
 
-      if application.updater:
-          await application.updater.start_polling(drop_pending_updates=True)
-      logger.info("Bot polling started — TRIADA INVESTING is live")
-      while True:
-          await asyncio.sleep(1)
+      polling_owner = f"{os.getpid()}-{uuid.uuid4().hex}"
+      polling_lock_name = "telegram_polling"
+      polling_lock_acquired = False
+      polling_renew_task = None
+
+      if dedup.USE_REDIS:
+          # Render can overlap old/new processes during a deploy. Wait for
+          # the old process to release the lock instead of causing Telegram's
+          # 409 Conflict by starting a second getUpdates request.
+          for _ in range(60):
+              polling_lock_acquired = await dedup.acquire_lock(
+                  polling_lock_name, polling_owner, ttl=120
+              )
+              if polling_lock_acquired:
+                  break
+              logger.warning("Another TRIADA process owns Telegram polling; waiting 2s")
+              await asyncio.sleep(2)
+
+          if not polling_lock_acquired:
+              raise RuntimeError(
+                  "Telegram polling lock is busy for 120s; refusing to start a second getUpdates loop"
+              )
+
+          async def renew_polling_lock():
+              while True:
+                  await asyncio.sleep(30)
+                  if not await dedup.renew_lock(
+                      polling_lock_name, polling_owner, ttl=120
+                  ):
+                      logger.error("Telegram polling lock was lost; stopping this process")
+                      return
+
+          polling_renew_task = asyncio.create_task(renew_polling_lock())
+      else:
+          logger.warning(
+              "Redis is unavailable: Telegram polling cannot be protected from "
+              "a second Render process"
+          )
+
+      try:
+          if application.updater:
+              await application.updater.start_polling(drop_pending_updates=True)
+          logger.info("Bot polling started — TRIADA INVESTING is live")
+          while True:
+              await asyncio.sleep(1)
+      finally:
+          if polling_renew_task:
+              polling_renew_task.cancel()
+          if polling_lock_acquired:
+              await dedup.release_lock(polling_lock_name, polling_owner)
 
 
 if __name__ == "__main__":

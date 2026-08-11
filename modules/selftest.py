@@ -74,8 +74,8 @@ def test_env() -> list[tuple[str, bool, str]]:
         ("PIXABAY_API_KEY", False),
         ("GOOGLE_CSE_API_KEY", False),
         ("GOOGLE_CSE_CX",  False),
-        ("UPSTASH_REDIS_URL", False),
-        ("UPSTASH_REDIS_TOKEN", False),
+        ("UPSTASH_REDIS_REST_URL", False),
+        ("UPSTASH_REDIS_REST_TOKEN", False),
     ]
     for name, required in vars_required + vars_optional:
         val = os.environ.get(name, "")
@@ -392,10 +392,10 @@ def test_scheduler_jobs(scheduler) -> list[tuple[str, bool, str]]:
         results.append((f"Задача / {jid}", ok,
                          "✅ в расписании" if ok else "❌ ОТСУТСТВУЕТ"))
 
-    # Убеждаемся что technical_alerts НЕТ в расписании
-    not_in = "technical_alerts" not in job_ids
-    results.append(("Задача / technical_alerts (д.б. убрана)", not_in,
-                     "✅ убрана из расписания" if not_in else "❌ всё ещё в расписании — BUG"))
+    # RSI/SMA алерты должны запускаться автоматически раз в час.
+    in_schedule = "technical_alerts" in job_ids
+    results.append(("Задача / technical_alerts (ежечасно)", in_schedule,
+                     "✅ в расписании" if in_schedule else "❌ отсутствует в расписании"))
 
     # Проверяем misfire_grace_time
     for job in scheduler.get_jobs():
