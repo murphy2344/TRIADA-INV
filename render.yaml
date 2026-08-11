@@ -10,6 +10,16 @@ services:
         sync: false
       - key: CHANNEL_ID
         sync: false
+      - key: GROUP_CHAT_ID
+        sync: false
+      - key: TG_API_ID
+        sync: false
+      - key: TG_API_HASH
+        sync: false
+      - key: TG_SESSION_STRING
+        sync: false
+      - key: TG_MONITOR_CHANNELS
+        sync: false
       - key: ADMIN_USERNAME
         sync: false
       - key: ADMIN_ID
