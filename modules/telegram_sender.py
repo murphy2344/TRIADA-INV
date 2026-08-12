@@ -1,5 +1,5 @@
-import logging
 import html
+import logging
 import re
 from telegram import Bot
 from telegram.constants import ParseMode
@@ -11,6 +11,7 @@ def _default_chat_id() -> str:
     value = GROUP_CHAT_ID or CHANNEL_ID
     return str(value or "").strip().strip('"').strip("'")
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -20,36 +21,75 @@ def _plain_text(text: str) -> str:
     return re.sub(r"<[^>]*>", "", text)
 
 
-async def send_text(bot: Bot, text: str, chat_id: str = None, message_thread_id: int | None = None) -> bool:
+def _thread_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(
+        phrase in text
+        for phrase in (
+            "message thread not found",
+            "thread not found",
+            "topic not found",
+            "message thread id invalid",
+        )
+    )
+
+
+async def _recover_forum_topic(bot, chat_id: str, topic_key: str | None, stale_id: int | None) -> int | None:
+    if not topic_key or str(chat_id).strip() != str(GROUP_CHAT_ID).strip():
+        return None
+    try:
+        from modules import forum_topics
+        return await forum_topics.recreate_topic(bot, chat_id, topic_key, stale_id)
+    except Exception as exc:
+        logger.exception("Forum topic recovery failed for %s: %s", topic_key, exc)
+        return None
+
+
+async def send_text(
+    bot: Bot,
+    text: str,
+    chat_id: str = None,
+    message_thread_id: int | None = None,
+    topic_key: str | None = None,
+) -> bool:
     cid = chat_id or _default_chat_id()
     kwargs = {"message_thread_id": message_thread_id} if message_thread_id is not None else {}
     try:
-        await bot.send_message(chat_id=cid, text=text, parse_mode=ParseMode.HTML,
-                               disable_web_page_preview=False, **kwargs)
+        await bot.send_message(
+            chat_id=cid, text=text, parse_mode=ParseMode.HTML,
+            disable_web_page_preview=False, **kwargs,
+        )
         return True
-    except TelegramError as e:
-        if message_thread_id is not None and (
-            "message thread" in str(e).lower() or "thread not found" in str(e).lower()
-        ):
-            logger.error(
-                "Forum topic %s is unavailable; refusing General fallback",
-                message_thread_id,
-            )
-            return False
-        logger.error(f"send_text error: {e}")
+    except TelegramError as exc:
+        if message_thread_id is not None and _thread_error(exc):
+            new_id = await _recover_forum_topic(bot, cid, topic_key, message_thread_id)
+            if new_id is None:
+                logger.error("Forum topic %s is unavailable and could not be recreated", message_thread_id)
+                return False
+            try:
+                await bot.send_message(
+                    chat_id=cid, text=text, parse_mode=ParseMode.HTML,
+                    disable_web_page_preview=False, message_thread_id=new_id,
+                )
+                return True
+            except TelegramError as retry_exc:
+                logger.error("Forum topic retry failed after recreation: %s", retry_exc)
+                return False
+        logger.error("send_text error: %s", exc)
         try:
             await bot.send_message(
                 chat_id=cid, text=_plain_text(text),
-                disable_web_page_preview=False,
-                **kwargs,
+                disable_web_page_preview=False, **kwargs,
             )
             return True
         except TelegramError:
             return False
 
-async def send_photo_text(bot: Bot, media, caption: str, chat_id: str = None, message_thread_id: int | None = None) -> bool:
+
+async def send_photo_text(bot: Bot, media, caption: str, chat_id: str = None, message_thread_id: int | None = None, topic_key: str | None = None) -> bool:
     ok, _ = await send_photo_text_detailed(
-        bot, media, caption, chat_id=chat_id, message_thread_id=message_thread_id
+        bot, media, caption, chat_id=chat_id,
+        message_thread_id=message_thread_id, topic_key=topic_key,
     )
     return ok
 
@@ -60,60 +100,57 @@ async def send_photo_text_detailed(
     caption: str,
     chat_id: str = None,
     message_thread_id: int | None = None,
+    topic_key: str | None = None,
 ) -> tuple[bool, str]:
-    """Send a photo/caption and return a safe diagnostic on failure.
-
-    A failed photo must not suppress the news post: after photo errors we
-    retry as a text message in the same forum topic. Never silently remove
-    the thread ID, because that sends the post to General.
-    """
+    """Send media and recover a deleted forum topic once when necessary."""
     cid = chat_id or _default_chat_id()
     kwargs = {"message_thread_id": message_thread_id} if message_thread_id is not None else {}
 
-    async def send_once(with_thread: bool = True):
-        send_kwargs = kwargs if with_thread else {}
+    async def send_once():
         if isinstance(media, bytes):
             await bot.send_photo(chat_id=cid, photo=media, caption=caption,
-                                 parse_mode=ParseMode.HTML, **send_kwargs)
+                                 parse_mode=ParseMode.HTML, **kwargs)
         elif isinstance(media, str) and media.startswith("http"):
             await bot.send_photo(chat_id=cid, photo=media, caption=caption,
-                                 parse_mode=ParseMode.HTML, **send_kwargs)
+                                 parse_mode=ParseMode.HTML, **kwargs)
         elif isinstance(media, str) and media.endswith((".jpg", ".jpeg", ".png")):
             with open(media, "rb") as f:
                 await bot.send_photo(chat_id=cid, photo=f, caption=caption,
-                                     parse_mode=ParseMode.HTML, **send_kwargs)
+                                     parse_mode=ParseMode.HTML, **kwargs)
         else:
             await bot.send_message(chat_id=cid, text=caption, parse_mode=ParseMode.HTML,
-                                   **send_kwargs)
+                                   **kwargs)
 
     try:
         await send_once()
         return True, ""
-    except Exception as e:
-        error_text = f"{type(e).__name__}: {e}"
-        if message_thread_id is not None and (
-            "message thread" in str(e).lower() or "thread not found" in str(e).lower()
-        ):
-            logger.error(
-                "Forum topic %s is unavailable; refusing General fallback",
-                message_thread_id,
-            )
-            return False, f"forum topic unavailable: {error_text}"
+    except Exception as exc:
+        error_text = f"{type(exc).__name__}: {exc}"
+        if message_thread_id is not None and _thread_error(exc):
+            new_id = await _recover_forum_topic(bot, cid, topic_key, message_thread_id)
+            if new_id is None:
+                logger.error("Forum topic %s is unavailable and could not be recreated", message_thread_id)
+                return False, f"forum topic unavailable: {error_text}"
+            kwargs["message_thread_id"] = new_id
+            try:
+                await send_once()
+                return True, f"forum topic recreated: {message_thread_id}->{new_id}"
+            except Exception as retry_exc:
+                error_text = f"{error_text}; recreated topic retry: {type(retry_exc).__name__}: {retry_exc}"
+                logger.error("Forum topic retry failed: %s", error_text)
+                return False, f"forum topic unavailable: {error_text}"
 
-        # If the photo itself fails, preserve the actual news as text.  This
-        # also handles a missing local stub and transient Telegram media errors.
+        # If only the photo fails, preserve the actual news as text in the same topic.
         try:
             await bot.send_message(
-                chat_id=cid, text=caption, parse_mode=ParseMode.HTML,
-                **(kwargs if message_thread_id is not None else {}),
+                chat_id=cid, text=caption, parse_mode=ParseMode.HTML, **kwargs,
             )
             return True, f"photo failed but text fallback succeeded: {error_text}"
         except Exception:
             try:
                 await bot.send_message(
                     chat_id=cid, text=_plain_text(caption),
-                    disable_web_page_preview=False,
-                    **kwargs,
+                    disable_web_page_preview=False, **kwargs,
                 )
                 return True, f"HTML/photo failed; plain-text fallback succeeded: {error_text}"
             except Exception as text_error:
@@ -121,10 +158,15 @@ async def send_photo_text_detailed(
                 logger.error("send_photo_text failed: %s", full_error)
                 return False, full_error
 
-async def send_two_messages(bot: Bot, media, caption1: str, text2: str, chat_id: str = None, message_thread_id: int | None = None) -> bool:
-    ok1 = await send_photo_text(bot, media, caption1, chat_id, message_thread_id)
-    ok2 = await send_text(bot, text2, chat_id, message_thread_id)
+
+async def send_two_messages(
+    bot: Bot, media, caption1: str, text2: str, chat_id: str = None,
+    message_thread_id: int | None = None, topic_key: str | None = None,
+) -> bool:
+    ok1 = await send_photo_text(bot, media, caption1, chat_id, message_thread_id, topic_key)
+    ok2 = await send_text(bot, text2, chat_id, message_thread_id, topic_key)
     return ok1 and ok2
+
 
 async def notify_admin(bot: Bot, admin_id: str, message: str):
     if not admin_id:
@@ -136,13 +178,8 @@ async def notify_admin(bot: Bot, admin_id: str, message: str):
 
 
 async def update_pinned_message(bot: Bot, text: str, message_id: str | None, chat_id: str = None) -> str | None:
-    """Обновляет закреплённое сообщение 'Пульс рынка' на месте, не создавая
-    новый пост каждый раз. Если message_id ещё нет или редактирование не
-    удалось (сообщение удалено вручную и т.п.) — создаёт новое и закрепляет.
-    Возвращает актуальный message_id — вызывающий код должен сохранить его
-    (см. modules.storage.set_meta) для следующего обновления."""
+    """Update the pinned market pulse without creating a new post each time."""
     cid = chat_id or _default_chat_id()
-
     if message_id:
         try:
             await bot.edit_message_text(
@@ -151,7 +188,6 @@ async def update_pinned_message(bot: Bot, text: str, message_id: str | None, cha
             return message_id
         except TelegramError as e:
             logger.warning(f"Не удалось отредактировать закреплённое сообщение, создаю новое: {e}")
-
     try:
         msg = await bot.send_message(chat_id=cid, text=text, parse_mode=ParseMode.HTML)
         await bot.pin_chat_message(chat_id=cid, message_id=msg.message_id, disable_notification=True)
