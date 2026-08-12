@@ -13,8 +13,7 @@ GROQ_API_KEY       = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL         = "llama-3.3-70b-versatile"
 GROQ_FALLBACK_MODEL = "llama-3.1-8b-instant"
 
-# Google Gemini — AI-критик, ДРУГАЯ модель для проверки рекомендаций Apollo.
-# Бесплатно, без карты: aistudio.google.com/apikey
+# Legacy Gemini variable kept for backwards-compatible Render environments; critic uses Groq only.
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 # Optional Telegram forum group / User API monitor
