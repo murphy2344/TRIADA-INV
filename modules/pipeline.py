@@ -26,7 +26,9 @@ def _topic_kwargs(analysis: dict | None = None) -> dict:
     """Destination kwargs: topic posts go to the forum group; general posts omit thread id."""
     kwargs = {"chat_id": forum_topics.target_chat_id()}
     if analysis:
-        thread_id = forum_topics.get_topic_id(forum_topics.route_topic(analysis))
+        topic_key = forum_topics.route_topic(analysis)
+        kwargs["topic_key"] = topic_key
+        thread_id = forum_topics.get_topic_id(topic_key)
         if thread_id is not None:
             kwargs["message_thread_id"] = thread_id
     return kwargs
@@ -34,6 +36,7 @@ def _topic_kwargs(analysis: dict | None = None) -> dict:
 
 def _topic_kwargs_for_key(topic_key: str) -> dict:
     kwargs = {"chat_id": forum_topics.target_chat_id()}
+    kwargs["topic_key"] = topic_key
     thread_id = forum_topics.get_topic_id(topic_key)
     if thread_id is not None:
         kwargs["message_thread_id"] = thread_id
