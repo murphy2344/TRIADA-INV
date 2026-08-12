@@ -12,6 +12,8 @@ services:
         sync: false
       - key: GROUP_CHAT_ID
         sync: false
+      - key: FORUM_TOPIC_IDS
+        sync: false
       - key: TG_API_ID
         sync: false
       - key: TG_API_HASH

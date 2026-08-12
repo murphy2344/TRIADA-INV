@@ -546,7 +546,7 @@ async def main():
               f"<b>Новые функции:</b>\n"
               f"• COT Report (CFTC, пятница 23:00 МСК) — /cot\n"
               f"• 13F Filings (SEC EDGAR, пн 10:00 МСК) — /13f\n"
-              f"• Форум-темы: {len(forum_topics.TOPIC_NAMES)} тем (если GROUP_CHAT_ID настроен)\n"
+              f"• Форум-темы: {len(topic_ids)}/{len(forum_topics.TOPIC_NAMES)} ID загружено\n"
               f"• Telegram-мониторинг: каждые 5 минут (если TG_* настроены)"
           )
           await notify_admin(application.bot, admin_id, msg)

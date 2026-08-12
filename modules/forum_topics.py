@@ -1,6 +1,8 @@
 """Forum topics and routing for the Telegram discussion group."""
 import asyncio
+import json
 import logging
+import os
 import uuid
 
 from telegram.error import TelegramError
@@ -20,11 +22,17 @@ TOPIC_NAMES = {
 
 _TOPIC_IDS: dict[str, int] = {}
 REDIS_TOPIC_PREFIX = "triada:forum_topic"
+TOPIC_MAP_PREFIX = "triada:forum_topics"
+
+
+def normalize_group_chat_id(group_chat_id) -> str:
+    """Keep Redis keys and Telegram destinations stable across Render restarts."""
+    return str(group_chat_id or "").strip().strip('"').strip("'")
 
 
 def target_chat_id() -> str:
     """Use the forum group when configured; keep CHANNEL_ID as a safe fallback."""
-    return GROUP_CHAT_ID or CHANNEL_ID
+    return normalize_group_chat_id(GROUP_CHAT_ID) or normalize_group_chat_id(CHANNEL_ID)
 
 
 def route_topic(analysis: dict) -> str:
@@ -60,6 +68,7 @@ async def ensure_topics_exist(bot, group_chat_id) -> dict[str, int]:
     Render may briefly run two processes during a deploy. A Redis NX lock
     prevents both processes from seeing missing IDs and creating duplicates.
     """
+    group_chat_id = normalize_group_chat_id(group_chat_id)
     if not group_chat_id:
         logger.info("GROUP_CHAT_ID is not configured; forum topics are disabled")
         set_topic_ids({})
@@ -67,7 +76,28 @@ async def ensure_topics_exist(bot, group_chat_id) -> dict[str, int]:
 
     async def load_saved() -> dict[str, int]:
         saved_ids: dict[str, int] = {}
+        configured = os.environ.get("FORUM_TOPIC_IDS", "").strip()
+        if configured:
+            try:
+                parsed = json.loads(configured)
+                for key, value in parsed.items():
+                    if key in TOPIC_NAMES:
+                        saved_ids[key] = int(value)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                logger.error("FORUM_TOPIC_IDS is not valid JSON")
+        map_key = f"{TOPIC_MAP_PREFIX}:{group_chat_id}"
+        aggregate = await dedup._redis(["GET", map_key]) if dedup.USE_REDIS else None
+        if aggregate:
+            try:
+                parsed = json.loads(aggregate)
+                for key, value in parsed.items():
+                    if key in TOPIC_NAMES:
+                        saved_ids[key] = int(value)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                logger.warning("Invalid aggregate forum topic map in Redis")
         for key in TOPIC_NAMES:
+            if key in saved_ids:
+                continue
             redis_key = f"{REDIS_TOPIC_PREFIX}:{group_chat_id}:{key}"
             meta_key = f"topic_id:{group_chat_id}:{key}"
             saved = await dedup._redis(["GET", redis_key]) if dedup.USE_REDIS else None
@@ -80,8 +110,17 @@ async def ensure_topics_exist(bot, group_chat_id) -> dict[str, int]:
                     logger.warning("Invalid saved topic id for %s; it will be recreated", key)
         return saved_ids
 
+    async def save_topic_map(topic_ids: dict[str, int]) -> None:
+        if dedup.USE_REDIS and len(topic_ids) == len(TOPIC_NAMES):
+            await dedup._redis([
+                "SET",
+                f"{TOPIC_MAP_PREFIX}:{group_chat_id}",
+                json.dumps(topic_ids, separators=(",", ":")),
+            ])
+
     result = await load_saved()
     if len(result) == len(TOPIC_NAMES):
+        await save_topic_map(result)
         set_topic_ids(result)
         logger.info("Forum topics loaded from persistent storage: %s", result)
         return result
@@ -109,6 +148,21 @@ async def ensure_topics_exist(bot, group_chat_id) -> dict[str, int]:
             "Redis is unavailable; forum topic creation cannot be coordinated across "
             "overlapping Render processes"
         )
+        # Never create topics on an uncoordinated Render restart. This was the
+        # source of the repeated duplicates. Existing IDs can still be loaded
+        # from SQLite or FORUM_TOPIC_IDS below.
+        configured = os.environ.get("FORUM_TOPIC_IDS", "").strip()
+        if configured:
+            try:
+                result.update({
+                    key: int(value)
+                    for key, value in json.loads(configured).items()
+                    if key in TOPIC_NAMES
+                })
+            except (TypeError, ValueError, json.JSONDecodeError):
+                logger.error("FORUM_TOPIC_IDS is not valid JSON")
+        set_topic_ids(result)
+        return result
 
     try:
         # Reload after locking because another process may have created some
@@ -127,6 +181,7 @@ async def ensure_topics_exist(bot, group_chat_id) -> dict[str, int]:
                 if dedup.USE_REDIS:
                     await dedup._redis(["SET", redis_key, str(thread_id)])
                 result[key] = thread_id
+                await save_topic_map(result)
                 logger.info("Forum topic ready: %s=%s", key, thread_id)
             except TelegramError as exc:
                 logger.error("Could not create forum topic %s: %s", key, exc)

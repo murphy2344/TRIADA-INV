@@ -8,7 +8,8 @@ from config.config import CHANNEL_ID, GROUP_CHAT_ID
 
 
 def _default_chat_id() -> str:
-    return GROUP_CHAT_ID or CHANNEL_ID
+    value = GROUP_CHAT_ID or CHANNEL_ID
+    return str(value or "").strip().strip('"').strip("'")
 
 logger = logging.getLogger(__name__)
 
@@ -27,24 +28,14 @@ async def send_text(bot: Bot, text: str, chat_id: str = None, message_thread_id:
                                disable_web_page_preview=False, **kwargs)
         return True
     except TelegramError as e:
-        if message_thread_id is not None and "Message thread not found" in str(e):
-            logger.warning("Forum topic %s is unavailable; sending message to group without topic", message_thread_id)
-            try:
-                await bot.send_message(
-                    chat_id=cid, text=text, parse_mode=ParseMode.HTML,
-                    disable_web_page_preview=False,
-                )
-                return True
-            except TelegramError as retry_error:
-                logger.error(f"send_text fallback error: {retry_error}")
-                try:
-                    await bot.send_message(
-                        chat_id=cid, text=_plain_text(text),
-                        disable_web_page_preview=False,
-                    )
-                    return True
-                except TelegramError:
-                    return False
+        if message_thread_id is not None and (
+            "message thread" in str(e).lower() or "thread not found" in str(e).lower()
+        ):
+            logger.error(
+                "Forum topic %s is unavailable; refusing General fallback",
+                message_thread_id,
+            )
+            return False
         logger.error(f"send_text error: {e}")
         try:
             await bot.send_message(
@@ -54,15 +45,6 @@ async def send_text(bot: Bot, text: str, chat_id: str = None, message_thread_id:
             )
             return True
         except TelegramError:
-            if message_thread_id is not None:
-                try:
-                    await bot.send_message(
-                        chat_id=cid, text=_plain_text(text),
-                        disable_web_page_preview=False,
-                    )
-                    return True
-                except TelegramError:
-                    pass
             return False
 
 async def send_photo_text(bot: Bot, media, caption: str, chat_id: str = None, message_thread_id: int | None = None) -> bool:
@@ -82,8 +64,8 @@ async def send_photo_text_detailed(
     """Send a photo/caption and return a safe diagnostic on failure.
 
     A failed photo must not suppress the news post: after photo errors we
-    retry as a text message, and after a stale forum thread we retry without
-    the thread ID.
+    retry as a text message in the same forum topic. Never silently remove
+    the thread ID, because that sends the post to General.
     """
     cid = chat_id or _default_chat_id()
     kwargs = {"message_thread_id": message_thread_id} if message_thread_id is not None else {}
@@ -112,13 +94,11 @@ async def send_photo_text_detailed(
         if message_thread_id is not None and (
             "message thread" in str(e).lower() or "thread not found" in str(e).lower()
         ):
-            logger.warning("Forum topic %s is unavailable; retrying post without topic", message_thread_id)
-            try:
-                await send_once(with_thread=False)
-                return True, ""
-            except Exception as retry_error:
-                logger.error(f"send_photo fallback error: {retry_error}")
-                error_text = f"{error_text}; без темы: {type(retry_error).__name__}: {retry_error}"
+            logger.error(
+                "Forum topic %s is unavailable; refusing General fallback",
+                message_thread_id,
+            )
+            return False, f"forum topic unavailable: {error_text}"
 
         # If the photo itself fails, preserve the actual news as text.  This
         # also handles a missing local stub and transient Telegram media errors.
@@ -133,6 +113,7 @@ async def send_photo_text_detailed(
                 await bot.send_message(
                     chat_id=cid, text=_plain_text(caption),
                     disable_web_page_preview=False,
+                    **kwargs,
                 )
                 return True, f"HTML/photo failed; plain-text fallback succeeded: {error_text}"
             except Exception as text_error:

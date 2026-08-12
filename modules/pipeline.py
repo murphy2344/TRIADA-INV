@@ -40,6 +40,14 @@ def _topic_kwargs_for_key(topic_key: str) -> dict:
     return kwargs
 
 
+def _topic_kwargs_for_analyses(analyses: list[dict]) -> dict:
+    """Route a digest using the first available analyzed news item."""
+    for analysis in analyses:
+        if analysis:
+            return _topic_kwargs(analysis)
+    return _topic_kwargs()
+
+
 async def _get_media(
     analysis: dict,
     rss_image: str | None = None,
@@ -255,7 +263,9 @@ async def run_morning(bot, admin_id: str = None):
     analyses       = await asyncio.to_thread(ai_analyzer.analyze_batch, fresh, "MORNING") if fresh else []
     header, body   = formatter.fmt_morning(analyses, date_str, fng)
     photo          = "assets/stubs/morning.jpg"
-    ok             = await telegram_sender.send_two_messages(bot, photo, header, body)
+    ok             = await telegram_sender.send_two_messages(
+        bot, photo, header, body, **_topic_kwargs_for_analyses(analyses)
+    )
 
     if ok:
         for item in fresh:
@@ -285,7 +295,9 @@ async def run_evening(bot, admin_id: str = None):
     analyses     = await asyncio.to_thread(ai_analyzer.analyze_batch, fresh, "EVENING") if fresh else []
     header, body = formatter.fmt_evening(analyses, date_str, fng)
     photo        = "assets/stubs/evening.jpg"
-    ok           = await telegram_sender.send_two_messages(bot, photo, header, body)
+    ok           = await telegram_sender.send_two_messages(
+        bot, photo, header, body, **_topic_kwargs_for_analyses(analyses)
+    )
 
     if ok:
         for item in fresh:
@@ -306,7 +318,9 @@ async def run_weekly(bot, admin_id: str = None):
     accuracy  = await storage.get_accuracy_stats(days=7)
     header, body = formatter.fmt_weekly(analyses, fng, accuracy)
     photo     = "assets/stubs/weekly.jpg"
-    ok        = await telegram_sender.send_two_messages(bot, photo, header, body)
+    ok        = await telegram_sender.send_two_messages(
+        bot, photo, header, body, **_topic_kwargs_for_analyses(analyses)
+    )
     if ok:
         await storage.increment_stats()
         return 1
@@ -318,7 +332,9 @@ async def run_monthly(bot, admin_id: str = None):
     analyses  = await asyncio.to_thread(ai_analyzer.analyze_batch, news_list[:6], "MONTHLY") if news_list else []
     header, body = formatter.fmt_monthly(analyses)
     photo     = "assets/stubs/monthly.jpg"
-    ok        = await telegram_sender.send_two_messages(bot, photo, header, body)
+    ok        = await telegram_sender.send_two_messages(
+        bot, photo, header, body, **_topic_kwargs_for_analyses(analyses)
+    )
     if ok:
         await storage.increment_stats()
         return 1
@@ -329,7 +345,9 @@ async def run_exchange_open(bot, exchange: str, index: str):
     now  = datetime.now(MSK)
     text = formatter.fmt_exchange_open(exchange, index, now)
     photo = "assets/stubs/exchange.jpg"
-    await telegram_sender.send_photo_text(bot, photo, text)
+    await telegram_sender.send_photo_text(
+        bot, photo, text, **_topic_kwargs_for_key("markets")
+    )
 
 
 async def run_leaders(bot, admin_id: str = None) -> int:
@@ -345,7 +363,9 @@ async def run_leaders(bot, admin_id: str = None) -> int:
 
     header, body = formatter.fmt_leaders(all_periods)
     photo = "assets/stubs/moex.jpg"
-    ok = await telegram_sender.send_photo_text(bot, photo, f"{header}\n\n{body}")
+    ok = await telegram_sender.send_photo_text(
+        bot, photo, f"{header}\n\n{body}", **_topic_kwargs_for_key("markets")
+    )
     if ok:
         await storage.increment_stats()
         return 1
@@ -375,7 +395,9 @@ async def run_sector_heatmap(bot, admin_id: str = None) -> int:
             return 0
         text = formatter.fmt_sector_heatmap(changes, sector_heatmap.SECTORS)
         image = await asyncio.to_thread(sector_heatmap.generate_heatmap_image, changes)
-        ok = await telegram_sender.send_photo_text(bot, image, text)
+        ok = await telegram_sender.send_photo_text(
+            bot, image, text, **_topic_kwargs_for_key("markets")
+        )
         if ok:
             await storage.increment_stats()
             return 1
@@ -461,7 +483,9 @@ async def run_econ_calendar_weekly(bot, admin_id: str = None) -> int:
         text = formatter.fmt_econ_calendar_weekly(releases)
         if not text:
             return 0
-        ok = await telegram_sender.send_text(bot, text)
+        ok = await telegram_sender.send_text(
+            bot, text, **_topic_kwargs_for_key("markets")
+        )
         if ok:
             await storage.increment_stats()
             return 1
@@ -482,7 +506,9 @@ async def run_econ_calendar_today(bot, admin_id: str = None) -> int:
         text = formatter.fmt_econ_calendar_today(releases)
         if not text:
             return 0
-        ok = await telegram_sender.send_text(bot, text)
+        ok = await telegram_sender.send_text(
+            bot, text, **_topic_kwargs_for_key("markets")
+        )
         if ok:
             await storage.increment_stats()
             return 1
@@ -520,7 +546,9 @@ async def check_recommendations(bot=None, admin_id: str = None):
     if results and bot:
         text = formatter.fmt_track_record_result(results)
         if text:
-            ok = await telegram_sender.send_text(bot, text)
+            ok = await telegram_sender.send_text(
+                bot, text, **_topic_kwargs_for_key("markets")
+            )
             if ok:
                 await storage.increment_stats()
 
