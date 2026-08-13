@@ -37,9 +37,36 @@ async def init_db():
                 posted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 checked INTEGER DEFAULT 0,
                 correct INTEGER,
-                price_after REAL
+                price_after REAL,
+                signal_id TEXT,
+                entry_time TIMESTAMP,
+                category TEXT DEFAULT 'market_move',
+                confidence REAL,
+                source TEXT,
+                horizon_hours INTEGER DEFAULT 24,
+                pnl_percent REAL,
+                max_drawdown_percent REAL,
+                direction_correct INTEGER
             )
         """)
+        async with db.execute("PRAGMA table_info(recommendations)") as cursor:
+            columns = {row[1] for row in await cursor.fetchall()}
+        migrations = {
+            "signal_id": "TEXT",
+            "entry_time": "TIMESTAMP",
+            "category": "TEXT DEFAULT 'market_move'",
+            "confidence": "REAL",
+            "source": "TEXT",
+            "horizon_hours": "INTEGER DEFAULT 24",
+            "pnl_percent": "REAL",
+            "max_drawdown_percent": "REAL",
+            "direction_correct": "INTEGER",
+        }
+        for column, definition in migrations.items():
+            if column not in columns:
+                await db.execute(
+                    f"ALTER TABLE recommendations ADD COLUMN {column} {definition}"
+                )
         await db.execute("""
             CREATE TABLE IF NOT EXISTS bot_meta (
                 key TEXT PRIMARY KEY,
@@ -103,44 +130,90 @@ async def get_today_stats() -> dict:
             return {"posts": 0, "errors": 0}
 
 
-async def save_recommendation(ticker: str, subject: str, recommendation: str, price_at_post: float):
+async def save_recommendation(
+    ticker: str,
+    subject: str,
+    recommendation: str,
+    price_at_post: float,
+    category: str = "market_move",
+    confidence: float | None = None,
+    source: str = "",
+):
     """Сохраняет рекомендацию с ценой на момент публикации — для последующей
     проверки трек-рекорда через 24 часа. Вызывается только когда есть тикер
     и рекомендация не 'neutral' (для neutral нет чёткого направления, которое
     можно проверить)."""
     async with aiosqlite.connect(DB_PATH) as db:
         try:
+            from datetime import datetime, timezone
+            from modules.track_record import horizon_for
+            now = datetime.now(timezone.utc)
             await db.execute(
-                "INSERT INTO recommendations (ticker, subject, recommendation, price_at_post) "
-                "VALUES (?, ?, ?, ?)",
-                (ticker, subject, recommendation, price_at_post),
+                "INSERT INTO recommendations "
+                "(ticker, subject, recommendation, price_at_post, signal_id, entry_time, "
+                "category, confidence, source, horizon_hours) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    ticker, subject, recommendation, price_at_post,
+                    f"{ticker}:{now.isoformat()}", now.isoformat(), category,
+                    confidence, source, horizon_for(category),
+                ),
             )
             await db.commit()
         except Exception as e:
             logger.error(f"DB save_recommendation error: {e}")
 
 
-async def get_unchecked_recommendations(older_than_hours: int = 24) -> list:
-    """Рекомендации старше N часов, ещё не проверенные — готовы к сверке цены."""
+async def get_unchecked_recommendations(older_than_hours: int | None = None) -> list:
+    """Return unchecked signals whose configured horizon has elapsed."""
     async with aiosqlite.connect(DB_PATH) as db:
+        if older_than_hours is None:
+            query = (
+                "SELECT id, ticker, recommendation, price_at_post, category, confidence, "
+                "source, horizon_hours, posted_at FROM recommendations "
+                "WHERE checked = 0 AND datetime('now') >= "
+                "datetime(posted_at, '+' || COALESCE(horizon_hours, 24) || ' hours')"
+            )
+            params = ()
+        else:
+            query = (
+                "SELECT id, ticker, recommendation, price_at_post, category, confidence, "
+                "source, horizon_hours, posted_at FROM recommendations "
+                "WHERE checked = 0 AND posted_at <= datetime('now', ? || ' hours')"
+            )
+            params = (f"-{older_than_hours}",)
         async with db.execute(
-            "SELECT id, ticker, recommendation, price_at_post FROM recommendations "
-            "WHERE checked = 0 AND posted_at <= datetime('now', ? || ' hours')",
-            (f"-{older_than_hours}",),
+            query, params,
         ) as cursor:
             rows = await cursor.fetchall()
             return [
-                {"id": r[0], "ticker": r[1], "recommendation": r[2], "price_at_post": r[3]}
+                {
+                    "id": r[0], "ticker": r[1], "recommendation": r[2],
+                    "price_at_post": r[3], "category": r[4] or "market_move",
+                    "confidence": r[5], "source": r[6] or "",
+                    "horizon_hours": r[7] or 24, "posted_at": r[8],
+                }
                 for r in rows
             ]
 
 
-async def update_recommendation_result(rec_id: int, price_after: float, correct: bool):
+async def update_recommendation_result(
+    rec_id: int,
+    price_after: float,
+    correct: bool,
+    pnl_percent: float | None = None,
+    max_drawdown_percent: float | None = None,
+):
     async with aiosqlite.connect(DB_PATH) as db:
         try:
             await db.execute(
-                "UPDATE recommendations SET checked = 1, correct = ?, price_after = ? WHERE id = ?",
-                (1 if correct else 0, price_after, rec_id),
+                "UPDATE recommendations SET checked = 1, correct = ?, "
+                "direction_correct = ?, price_after = ?, pnl_percent = ?, "
+                "max_drawdown_percent = ? WHERE id = ?",
+                (
+                    1 if correct else 0, 1 if correct else 0, price_after,
+                    pnl_percent, max_drawdown_percent, rec_id,
+                ),
             )
             await db.commit()
         except Exception as e:
@@ -151,7 +224,7 @@ async def get_accuracy_stats(days: int = 7) -> dict:
     """% попаданий рекомендаций за последние N дней — для weekly recap и /status."""
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
-            "SELECT COUNT(*), SUM(correct) FROM recommendations "
+            "SELECT COUNT(*), SUM(correct), AVG(pnl_percent) FROM recommendations "
             "WHERE checked = 1 AND posted_at >= datetime('now', ? || ' days')",
             (f"-{days}",),
         ) as cursor:
@@ -159,7 +232,33 @@ async def get_accuracy_stats(days: int = 7) -> dict:
             total = row[0] or 0
             correct = row[1] or 0
             accuracy = round(correct / total * 100) if total else None
-            return {"total": total, "correct": correct, "accuracy_pct": accuracy}
+            return {
+                "total": total,
+                "correct": correct,
+                "accuracy_pct": accuracy,
+                "avg_pnl": round(row[2], 2) if row[2] is not None else 0.0,
+            }
+
+
+async def get_track_record_by_category(days: int = 7) -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT category, COUNT(*), SUM(correct), AVG(pnl_percent) "
+            "FROM recommendations WHERE checked = 1 "
+            "AND posted_at >= datetime('now', ? || ' days') GROUP BY category",
+            (f"-{days}",),
+        ) as cursor:
+            rows = await cursor.fetchall()
+    result = []
+    for category, count, correct, avg_pnl in rows:
+        result.append({
+            "category": category or "market_move",
+            "count": count,
+            "correct": correct or 0,
+            "accuracy_pct": round((correct or 0) / count * 100) if count else 0,
+            "avg_pnl": round(avg_pnl, 2) if avg_pnl is not None else 0.0,
+        })
+    return result
 
 
 async def get_meta(key: str) -> str | None:

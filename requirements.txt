@@ -16,3 +16,5 @@ lxml>=5.0.0
 python-dotenv>=1.0.0
 Pillow>=10.0.0
 telethon>=1.36
+playwright>=1.40.0
+finnhub-python>=2.4.0

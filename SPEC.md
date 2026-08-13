@@ -7,8 +7,8 @@ config/config.py         — все настройки из .env / Environment V
 modules/
   news_sources.py        — сбор из RSS (только финансовые ленты)
   ai_analyzer.py          — Groq JSON-анализ (llama-3.3-70b-versatile + fallback 8b)
-  critic.py               — AI-критик рекомендаций через Google Gemini (другая модель)
-  charting.py             — Finviz (основной) → yfinance+matplotlib (fallback) графики
+  critic.py               — независимый AI-критик рекомендаций через Groq
+  charting.py             — TradingView/Chart-IMG → Finviz → yfinance+matplotlib
   media.py                — статья → Wikimedia → Google CSE → Pexels/Pixabay → заглушка
   dedup.py                — антидубль (Upstash Redis / SQLite fallback), 2 уровня проверки
   formatter.py             — сборка HTML-постов, включая отображение мнения критика
@@ -56,18 +56,20 @@ SPEC.md                     — этот файл (эталон, сверять�
 
 ## AI-критик (Athena-подобная проверка рекомендаций)
 - Вызывается ТОЛЬКО для BREAKING-постов с impact_level == "high"
-  (бережём ограниченный бесплатный лимит Gemini — не на каждую новость)
-- Модель — Google Gemini (gemini-2.5-flash), сознательно ДРУГАЯ, чем Apollo
-  (Groq/Llama) — иначе критика слабая из-за самосогласия одной модели
+  (бережём ограниченный бесплатный лимит Groq — не на каждую новость)
+- Модель — отдельная Groq-модель, сознательно ДРУГАЯ, чем Apollo
+  (Groq/Llama) — критик запускается только для важных сигналов
 - Если критик не согласен с рекомендацией — в посте показываются ОБА взгляда
   прозрачно (см. formatter.py:_rec), а не один самоуверенный вывод
-- Если GEMINI_API_KEY не задан — бот работает без критика, публикует
+- Если GROQ_API_KEY не задан — бот работает без критика, публикует
   рекомендацию Apollo как есть (graceful degradation, не блокирует публикацию)
 
 ## Трек-рекорд рекомендаций
 - При публикации BREAKING-поста с тикером и рекомендацией long/short (не
   neutral) — сохраняется цена актива на момент поста (storage.recommendations)
-- Раз в час (scheduler: track_record) — сверяются рекомендации старше 24ч:
+- Раз в час (scheduler: track_record) — сверяются рекомендации после
+  горизонта категории (макро 72ч, earnings 24ч, геополитика 48ч,
+  central bank 120ч и т.д.):
   long засчитывается верным при росте цены, short — при падении
 - % точности за 7 дней — в /status и в еженедельном посте (WEEKLY)
 - Neutral-рекомендации не отслеживаются (нет чёткого направления для проверки)

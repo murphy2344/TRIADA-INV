@@ -1,5 +1,6 @@
 import asyncio
 import html
+import io
 import logging
 import os
 import threading
@@ -9,7 +10,7 @@ from datetime import datetime
 import pytz
 from flask import Flask, render_template_string
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from config.config import BOT_TOKEN, ADMIN_USERNAME, ADMIN_ID, CHANNEL_ID, GROUP_CHAT_ID
 from modules import pipeline, storage, dedup, forum_topics, telegram_monitor
@@ -456,6 +457,41 @@ async def cmd_testall(update: Update, context: ContextTypes.DEFAULT_TYPE):
       await update.message.reply_text(f"❌ Ошибка диагностики: {e}")
 
 
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  """Handle the small set of buttons attached to analytical posts."""
+  query = update.callback_query
+  if not query:
+      return
+  await query.answer()
+  data = query.data or ""
+  if data == "status":
+      stats = await storage.get_accuracy_stats(days=7)
+      await query.message.reply_text(
+          "📊 <b>Трек-рекорд за 7 дней</b>\n"
+          f"Сигналов: <b>{stats['total']}</b>\n"
+          f"Точность: <b>{stats['accuracy_pct'] or 'н/д'}%</b>\n"
+          f"Средний PnL: <b>{stats.get('avg_pnl', 0):+.2f}%</b>",
+          parse_mode="HTML",
+      )
+      return
+  if data.startswith("chart_"):
+      ticker = data.removeprefix("chart_")
+      try:
+          from modules import charting
+          image = await asyncio.to_thread(charting.build_chart, ticker)
+          if image:
+              await query.message.reply_photo(
+                  photo=io.BytesIO(image),
+                  caption=f"<b>{html.escape(ticker)}</b> · график TRIADA INVESTING",
+                  parse_mode="HTML",
+              )
+          else:
+              await query.message.reply_text("График временно недоступен.")
+      except Exception as exc:
+          logger.error("Chart callback error: %s", exc)
+          await query.message.reply_text("Не удалось построить график.")
+
+
 # ─── Main ─────────────────────────────────────────────────────────────────────
 async def main():
   global application, scheduler
@@ -495,6 +531,7 @@ async def main():
   application.add_handler(CommandHandler("channels", cmd_channels))
   application.add_handler(CommandHandler("addchannel", cmd_addchannel))
   application.add_handler(CommandHandler("removechannel", cmd_removechannel))
+  application.add_handler(CallbackQueryHandler(handle_callback))
 
   admin_id = str(ADMIN_ID) if ADMIN_ID else ""
   application.bot_data["admin_id"] = admin_id

@@ -18,6 +18,7 @@ TOPIC_NAMES = {
     "markets": "📊 Рынки и макро",
     "crypto": "🪙 Крипта",
     "commodities": "🥇 Сырьё и металлы",
+    "general": "📰 Общие новости",
 }
 
 _TOPIC_IDS: dict[str, int] = {}
@@ -40,12 +41,14 @@ def route_topic(analysis: dict) -> str:
         return "crypto"
     if asset_class == "commodity":
         return "commodities"
-    category = analysis.get("category", "market_move")
-    if category == "geopolitics":
+    category = analysis.get("ai_category") or analysis.get("category", "market_move")
+    if category in {"geopolitics", "regulatory", "central_bank"}:
         return "geopolitics"
-    if category == "company":
+    if category in {"company", "corporate", "earnings"}:
         return "companies"
-    return "markets"
+    if category in {"macro", "market_move", "bonds", "commodity"}:
+        return "markets"
+    return "general"
 
 
 def set_topic_ids(topic_ids: dict[str, int] | None) -> None:

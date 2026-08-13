@@ -89,7 +89,13 @@ async def _track_recommendation(analysis: dict):
     if price is None:
         return
     await storage.save_recommendation(
-        ticker, analysis.get("subject", ""), recommendation, price
+        ticker,
+        analysis.get("subject", ""),
+        recommendation,
+        price,
+        category=analysis.get("ai_category") or analysis.get("category", "market_move"),
+        confidence=analysis.get("confidence"),
+        source=analysis.get("_source", ""),
     )
 
 
@@ -156,7 +162,9 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
         url = item.get("url") or ""
         caption = formatter.fmt_breaking(analysis, source, url, chip_data)
         ok, send_detail = await telegram_sender.send_photo_text_detailed(
-            bot, media_obj, caption, **_topic_kwargs(analysis)
+            bot, media_obj, caption,
+            reply_markup=formatter.breaking_keyboard(analysis, url),
+            **_topic_kwargs(analysis)
         )
         if not ok:
             await fail("Telegram отправка", send_detail)
@@ -526,24 +534,40 @@ async def run_econ_calendar_today(bot, admin_id: str = None) -> int:
 async def check_recommendations(bot=None, admin_id: str = None):
     """Сверяет рекомендации старше 24 часов с реальным движением цены
     и ПУБЛИКУЕТ результат в канал (long/short: цена тогда vs сейчас)."""
-    pending = await storage.get_unchecked_recommendations(older_than_hours=24)
+    pending = await storage.get_unchecked_recommendations()
     if not pending:
         return 0
 
     results = []
     for rec in pending:
-        price_after = await asyncio.to_thread(charting.get_current_price, rec["ticker"])
-        if price_after is None:
+        metrics = await asyncio.to_thread(
+            charting.get_price_metrics, rec["ticker"], rec["price_at_post"]
+        )
+        if not metrics:
             continue
+        price_after = metrics["price_after"]
         went_up = price_after > rec["price_at_post"]
         correct = went_up if rec["recommendation"] == "long" else not went_up
-        await storage.update_recommendation_result(rec["id"], price_after, correct)
+        await storage.update_recommendation_result(
+            rec["id"],
+            price_after,
+            correct,
+            pnl_percent=(
+                metrics["pnl_percent"]
+                if rec["recommendation"] == "long"
+                else -metrics["pnl_percent"]
+            ),
+            max_drawdown_percent=metrics["max_drawdown_percent"],
+        )
         results.append({
             "ticker": rec["ticker"],
             "recommendation": rec["recommendation"],
             "price_at_post": rec["price_at_post"],
             "price_after": price_after,
             "correct": correct,
+            "pnl_percent": metrics["pnl_percent"],
+            "max_drawdown_percent": metrics["max_drawdown_percent"],
+            "horizon_hours": rec.get("horizon_hours", 24),
         })
 
     if results and bot:
