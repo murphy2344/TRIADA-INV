@@ -1,4 +1,8 @@
-"""Forum topics with persistent IDs and self-healing after manual deletion."""
+"""Managed forum topics with persistent IDs and self-healing after deletion.
+
+Telegram's built-in General thread is intentionally not managed here.  It is
+the fallback destination for categories that do not have a dedicated topic.
+"""
 import asyncio
 import json
 import logging
@@ -18,8 +22,8 @@ TOPIC_NAMES = {
     "markets": "📊 Рынки и макро",
     "crypto": "🪙 Крипта",
     "commodities": "🥇 Сырьё и металлы",
-    "general": "📰 Общие новости",
 }
+GENERAL_TOPIC_KEY = "general"
 
 _TOPIC_IDS: dict[str, int] = {}
 _LOCAL_TOPIC_LOCK = asyncio.Lock()
@@ -58,6 +62,10 @@ def set_topic_ids(topic_ids: dict[str, int] | None) -> None:
 
 
 def get_topic_id(topic_key: str) -> int | None:
+    # General is Telegram's built-in forum thread. Never use a stored ID for
+    # it and never pass message_thread_id so Telegram routes there naturally.
+    if topic_key == GENERAL_TOPIC_KEY:
+        return None
     value = _TOPIC_IDS.get(topic_key)
     return int(value) if value is not None else None
 
