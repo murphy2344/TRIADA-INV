@@ -1,11 +1,13 @@
 import io
 import time
+import asyncio
 import logging
 import requests
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import yfinance as yf
+from config.config import CHART_IMG_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +98,6 @@ def _yfinance_chart(ticker: str, period: str = "5d") -> bytes | None:
     sparkline = get_sparkline_data(ticker, period)
     if not sparkline:
         return None
-
     try:
         values = sparkline["values"]
         last = sparkline["last"]
@@ -133,6 +134,62 @@ def _yfinance_chart(ticker: str, period: str = "5d") -> bytes | None:
         return None
 
 
+def _chart_img(ticker: str) -> bytes | None:
+    """Chart-IMG TradingView image, used when CHART_IMG_API_KEY is configured."""
+    if not CHART_IMG_API_KEY:
+        return None
+    try:
+        response = requests.get(
+            "https://api.chart-img.com/v1/tradingview/advanced-chart",
+            params={"symbol": ticker, "interval": "1d"},
+            headers={
+                "Authorization": f"Bearer {CHART_IMG_API_KEY}",
+                "x-api-key": CHART_IMG_API_KEY,
+                "Accept": "image/png",
+            },
+            timeout=20,
+        )
+        if response.ok and response.content.startswith(b"\x89PNG"):
+            logger.info("Chart-IMG chart OK for %s", ticker)
+            return response.content
+        logger.warning("Chart-IMG failed for %s: HTTP %s", ticker, response.status_code)
+    except Exception as exc:
+        logger.warning("Chart-IMG error for %s: %s", ticker, exc)
+    return None
+
+
+async def _tradingview_chart_async(ticker: str) -> bytes | None:
+    """Capture a TradingView chart with Playwright when a browser is available."""
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        return None
+
+    try:
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page(viewport={"width": 1280, "height": 720})
+            url = f"https://www.tradingview.com/chart/?symbol={ticker}&interval=1D"
+            await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+            await page.wait_for_timeout(4_000)
+            image = await page.screenshot(type="png")
+            await browser.close()
+            if image:
+                logger.info("TradingView screenshot OK for %s", ticker)
+            return image
+    except Exception as exc:
+        logger.warning("TradingView screenshot error for %s", ticker, exc)
+        return None
+
+
+def _tradingview_chart(ticker: str) -> bytes | None:
+    try:
+        return asyncio.run(_tradingview_chart_async(ticker))
+    except Exception as exc:
+        logger.warning("TradingView event-loop error for %s: %s", ticker, exc)
+        return None
+
+
 def get_current_price(ticker_raw: str) -> float | None:
     """Текущая цена актива — для трек-рекорда рекомендаций."""
     ticker = resolve_ticker(ticker_raw)
@@ -145,6 +202,35 @@ def get_current_price(ticker_raw: str) -> float | None:
         return float(data["Close"].iloc[-1])
     except Exception as e:
         logger.error(f"get_current_price error ({ticker}): {e}")
+        return None
+
+
+def get_price_metrics(ticker_raw: str, entry_price: float) -> dict | None:
+    """Return current PnL and observed drawdown for a signal check."""
+    ticker = resolve_ticker(ticker_raw)
+    if not ticker or not entry_price:
+        return None
+    try:
+        data = yf.Ticker(ticker).history(period="1y", interval="1d")
+        if data is None or data.empty or "Close" not in data.columns:
+            return None
+        closes = [float(value) for value in data["Close"].dropna().tolist()]
+        if not closes:
+            return None
+        current = closes[-1]
+        peak = closes[0]
+        max_drawdown = 0.0
+        for value in closes:
+            peak = max(peak, value)
+            if peak:
+                max_drawdown = min(max_drawdown, (value - peak) / peak * 100)
+        return {
+            "price_after": current,
+            "pnl_percent": (current - entry_price) / entry_price * 100,
+            "max_drawdown_percent": max_drawdown,
+        }
+    except Exception as exc:
+        logger.error("get_price_metrics error (%s): %s", ticker, exc)
         return None
 
 
@@ -179,11 +265,21 @@ def build_chart(ticker_raw: str) -> bytes | None:
     if not ticker:
         return None
 
-    # 1. Try Finviz (primary) — проверяет размер и отбрасывает заглушки
+    # 1. TradingView browser capture.
+    result = _tradingview_chart(ticker)
+    if result:
+        return result
+
+    # 2. Chart-IMG API, if its optional key is configured.
+    result = _chart_img(ticker)
+    if result:
+        return result
+
+    # 3. Finviz — проверяет размер и отбрасывает заглушки.
     result = _finviz_chart(ticker)
     if result:
         return result
 
-    # 2. Fallback: yfinance + matplotlib
+    # 4. Fallback: yfinance + matplotlib.
     logger.info(f"Finviz failed or returned placeholder for {ticker}, using yfinance fallback")
     return _yfinance_chart(ticker)

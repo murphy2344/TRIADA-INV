@@ -1,6 +1,7 @@
 import html
 from datetime import datetime, timedelta
 import pytz
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 MSK = pytz.timezone("Europe/Moscow")
 
@@ -65,25 +66,56 @@ def _chip_line(chip_data: dict | None) -> str:
 
 
 def fmt_breaking(analysis: dict, source: str | None, url: str | None, chip_data: dict | None = None) -> str:
-    assets = _e(analysis.get("affected_assets", []))
-    source_block = ""
-    if source:
-        link = f" • <a href='{html.escape(str(url or ''), quote=True)}'>читать</a>" if url else ""
-        source_block = f"\n\nИсточник: {_e(source)}{link}"
+    assets = analysis.get("affected_assets", [])
+    asset_lines = "\n".join(
+        f"• {_e(item)}" for item in assets
+    ) or "• Нет конкретного актива"
+    impact_level = analysis.get("impact_level", "low")
+    impact_text = {
+        "high": "🔴 ВЫСОКОЕ ВЛИЯНИЕ",
+        "medium": "🟡 СРЕДНЕЕ ВЛИЯНИЕ",
+        "low": "🟢 НИЗКОЕ ВЛИЯНИЕ",
+    }.get(impact_level, "🟡 ВЛИЯНИЕ")
+    confidence = analysis.get("confidence")
+    confidence_text = (
+        f"{round(float(confidence) * 100)}%" if confidence is not None else "н/д"
+    )
+    tags = " ".join(
+        f"<code>#{_e(str(item)).replace(' ', '')}</code>" for item in assets[:5]
+    )
+    source_block = (
+        f"<b>🏛️ Источник:</b> {_e(source or 'не указан')}"
+        + (f" · <a href='{html.escape(str(url), quote=True)}'>читать</a>" if url else "")
+    )
     return (
         f"{_chip_line(chip_data)}"
-        f"<b>СРОЧНО — РЫНОК</b>\n\n"
-        f"<b>{_e(analysis.get('title', ''))}</b>\n\n"
-        f"<blockquote expandable>"
-        f"<b>Суть новости:</b>\n{_e(analysis.get('summary', ''))}\n\n"
-        f"<b>Влияние на рынок:</b>\n{_impact(analysis)}\n\n"
-        f"<b>Затронутые активы:</b> {assets}\n\n"
-        f"<b>Возможный сценарий:</b>\n{_e(analysis.get('scenario', ''))}\n\n"
-        f"<b>Рекомендация:</b>\n{_rec(analysis)}"
-        f"</blockquote>"
-        f"{source_block}\n\n"
-        f"#Срочно #Рынок #Инвестиции"
+        f"<b>{impact_level} {impact_text}</b> | {tags}\n\n"
+        f"<blockquote>"
+        f"<b>📰 {_e(analysis.get('title', ''))}</b>\n\n"
+        f"<b>📝 Суть:</b>\n{_e(analysis.get('summary', ''))}\n\n"
+        f"<b>📊 Влияние:</b>\n{_e(analysis.get('impact_text', ''))}\n\n"
+        f"<b>🎯 Активы:</b>\n{asset_lines}\n\n"
+        f"<b>🔮 Сценарий:</b>\n{_e(analysis.get('scenario', ''))}\n\n"
+        f"<b>💡 Рекомендация:</b>\n<code>{_e(REC_MAP.get(analysis.get('recommendation'), 'Нейтрально'))}</code>"
+        f" | Горизонт: {_e(analysis.get('timeframe', 'н/д'))} | Уверенность: {confidence_text}\n\n"
+        f"<b>⚠️ Риск:</b>\n{_e(analysis.get('risk', 'Не указан'))}"
+        f"</blockquote>\n\n"
+        f"{source_block}\n"
+        f"<b>⏱️ Опубликовано:</b> {datetime.now(pytz.UTC):%H:%M} UTC "
+        f"({datetime.now(MSK):%H:%M} МСК)\n\n"
+        f"<i>⚠️ Не является инвестиционной рекомендацией.</i>"
     )
+
+
+def breaking_keyboard(analysis: dict, source_url: str | None) -> InlineKeyboardMarkup | None:
+    ticker = analysis.get("ticker")
+    rows = []
+    if ticker:
+        rows.append([InlineKeyboardButton("📈 График", callback_data=f"chart_{ticker}")])
+    if source_url:
+        rows[0:0] = [[InlineKeyboardButton("📰 Источник", url=source_url)]]
+    rows.append([InlineKeyboardButton("📊 Трек-рекорд", callback_data="status")])
+    return InlineKeyboardMarkup(rows) if rows else None
 
 
 def fmt_hourly_header(now: datetime = None) -> str:

@@ -1,66 +1,10 @@
-"""
-Пульс рынка для закреплённого сообщения.
-
-USD/RUB — через Yahoo Finance (yfinance, USDRUB=X): даёт актуальный курс
-в любое время суток, а не только во время торгов на MOEX.
-
-IMOEX — через MOEX ISS API:
-  • marketdata.CURRENTVALUE — текущая цена (только во время торгов)
-  • securities.PREVPRICE    — цена предыдущего закрытия (всегда доступна)
-Таким образом IMOEX присутствует в закрепе всегда, с пометкой "(закр.)"
-если биржа не торгует прямо сейчас.
-"""
-import logging
+"""Compact global market pulse for the pinned Telegram message."""
 import datetime
+import logging
+
 import requests
 
 logger = logging.getLogger(__name__)
-
-
-
-
-def fetch_usd_rub() -> float | None:
-    """Yahoo Finance USDRUB=X с явным временным диапазоном для обхода кэша.
-    Каждый вызов запрашивает данные за последние 20 минут — новое окно
-    означает новый запрос, не попадающий в кэш предыдущего обращения."""
-    try:
-        import yfinance as yf
-        now = datetime.datetime.utcnow()
-        start = now - datetime.timedelta(minutes=20)
-        # Используем yf.download с явным start/end — обходит кэш Ticker.history
-        data = yf.download(
-            "USDRUB=X",
-            start=start.strftime("%Y-%m-%d %H:%M:%S"),
-            end=now.strftime("%Y-%m-%d %H:%M:%S"),
-            interval="1m",
-            progress=False,
-            auto_adjust=True,
-            multi_level_index=False,
-        )
-        if data is not None and not data.empty:
-            close_col = "Close" if "Close" in data.columns else data.columns[0]
-            price = float(data[close_col].iloc[-1])
-            if price > 0:
-                return round(price, 2)
-        # Fallback: более широкое окно
-        data2 = yf.download(
-            "USDRUB=X",
-            period="1d",
-            interval="5m",
-            progress=False,
-            auto_adjust=True,
-            multi_level_index=False,
-        )
-        if data2 is not None and not data2.empty:
-            close_col = "Close" if "Close" in data2.columns else data2.columns[0]
-            price = float(data2[close_col].iloc[-1])
-            if price > 0:
-                return round(price, 2)
-        return None
-    except Exception as e:
-        logger.error(f"USD/RUB (yfinance) fetch error: {e}")
-        return None
-
 
 IMOEX_MARKETDATA_URL = (
     "https://iss.moex.com/iss/engines/stock/markets/index"
@@ -70,25 +14,14 @@ MOEX_TIMEOUT = 10
 
 
 def _moex_first_row(block: dict) -> dict | None:
-    if not block:
+    if not block or not block.get("data"):
         return None
-    columns = block.get("columns", [])
-    data    = block.get("data", [])
-    if not data:
-        return None
-    return dict(zip(columns, data[0]))
+    return dict(zip(block.get("columns", []), block["data"][0]))
 
 
 def fetch_imoex() -> dict | None:
-    """MOEX ISS — индекс Мосбиржи IMOEX.
-
-    Уровень 1: marketdata.CURRENTVALUE — текущая цена (только в торговые часы).
-    Уровень 2: securities.PREVPRICE     — цена закрытия предыдущей сессии
-               (всегда доступна, используется когда биржа закрыта).
-    Возвращает dict с ключами value, change_pct, is_closed (bool).
-    """
     try:
-        resp = requests.get(
+        response = requests.get(
             IMOEX_MARKETDATA_URL,
             params={
                 "iss.meta": "off",
@@ -97,44 +30,104 @@ def fetch_imoex() -> dict | None:
             },
             timeout=MOEX_TIMEOUT,
         )
-        resp.raise_for_status()
-        js = resp.json()
+        response.raise_for_status()
+        payload = response.json()
+        market = _moex_first_row(payload.get("marketdata"))
+        securities = _moex_first_row(payload.get("securities"))
+        if market and market.get("CURRENTVALUE") is not None:
+            return {
+                "value": float(market["CURRENTVALUE"]),
+                "change_pct": market.get("LASTTOPREVPRICE"),
+                "is_closed": False,
+            }
+        if securities and securities.get("PREVPRICE") is not None:
+            return {
+                "value": float(securities["PREVPRICE"]),
+                "change_pct": None,
+                "is_closed": True,
+            }
+    except Exception as exc:
+        logger.error("IMOEX fetch error: %s", exc)
+    return None
 
-        md_row  = _moex_first_row(js.get("marketdata"))
-        sec_row = _moex_first_row(js.get("securities"))
 
-        current = md_row.get("CURRENTVALUE") if md_row else None
-        change  = md_row.get("LASTTOPREVPRICE") if md_row else None
-        prev    = sec_row.get("PREVPRICE") if sec_row else None
+def _download_quote(ticker: str) -> dict | None:
+    try:
+        import yfinance as yf
 
-        if current is not None:
-            return {"value": current, "change_pct": change, "is_closed": False}
-        if prev is not None:
-            return {"value": prev, "change_pct": None, "is_closed": True}
+        data = yf.download(
+            ticker,
+            period="5d",
+            interval="1d",
+            progress=False,
+            auto_adjust=True,
+            multi_level_index=False,
+        )
+        if data is None or data.empty or "Close" not in data.columns:
+            return None
+        closes = data["Close"].dropna()
+        if len(closes) < 1:
+            return None
+        current = float(closes.iloc[-1])
+        previous = float(closes.iloc[-2]) if len(closes) > 1 else current
+        change = ((current - previous) / previous * 100) if previous else 0.0
+        return {"value": current, "change_pct": change}
+    except Exception as exc:
+        logger.warning("Global quote %s failed: %s", ticker, exc)
         return None
 
-    except Exception as e:
-        logger.error(f"IMOEX fetch error: {e}")
-        return None
+
+def fetch_usd_rub() -> float | None:
+    quote = _download_quote("USDRUB=X")
+    return round(quote["value"], 2) if quote else None
+
+
+def _emoji(change: float | None) -> str:
+    if change is None:
+        return "🟡"
+    if change > 0.5:
+        return "🟢"
+    if change < -0.5:
+        return "🔴"
+    return "🟡"
+
+
+def _format_quote(label: str, quote: dict | None, decimals: int = 2) -> str:
+    if not quote:
+        return f"🟡<b>{label}</b> n/d"
+    change = quote.get("change_pct")
+    change_text = "n/d" if change is None else f"{change:+.2f}%"
+    return (
+        f"{_emoji(change)}<b>{label}</b> "
+        f"<code>{quote['value']:,.{decimals}f}</code> "
+        f"<code>{change_text}</code>"
+    )
 
 
 def build_pulse_text() -> str:
-    """Текст закреплённого сообщения. Если данные недоступны — не выдумываем цифры."""
-    usd_rub = fetch_usd_rub()
-    imoex = fetch_imoex()
+    """Three compact lines; unavailable sources are shown as n/d, never invented."""
+    tickers = {
+        "SPX": "^GSPC",
+        "NDX": "^IXIC",
+        "VIX": "^VIX",
+        "DXY": "DX-Y.NYB",
+        "10Y": "^TNX",
+        "WTI": "CL=F",
+        "Gold": "GC=F",
+    }
+    quotes = {label: _download_quote(ticker) for label, ticker in tickers.items()}
+    # Yahoo reports ^TNX in percentage points*10.
+    if quotes["10Y"]:
+        quotes["10Y"]["value"] /= 10
 
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
-    parts = []
-    if usd_rub is not None:
-        parts.append(f"USD/RUB <code>{usd_rub:,.2f}</code>")
-    if imoex is not None:
-        pct = imoex.get("change_pct")
-        sign = "+" if (pct or 0) >= 0 else ""
-        pct_str = f" ({sign}{pct:.2f}%)" if pct is not None else ""
-        closed_mark = " <i>закр.</i>" if imoex.get("is_closed") else ""
-        parts.append(f"IMOEX <code>{imoex['value']:,.2f}</code>{pct_str}{closed_mark}")
-
-    if not parts:
-        return "📌 Пульс рынка временно недоступен — обновим в следующий раз."
-
-    return "📌 <b>Пульс рынка</b> · " + " · ".join(parts) + f"\nОбновлено {now.strftime('%H:%M МСК')}"
+    return (
+        f"<b>📊 ПУЛЬС РЫНКА</b> <code>{now:%H:%M} МСК</code>\n\n"
+        f"{_format_quote('SPX', quotes['SPX'], 2)} | "
+        f"{_format_quote('NDX', quotes['NDX'], 2)}\n"
+        f"{_format_quote('VIX', quotes['VIX'], 2)} | "
+        f"{_format_quote('DXY', quotes['DXY'], 2)} | "
+        f"{_format_quote('10Y', quotes['10Y'], 2)}\n"
+        f"{_format_quote('WTI', quotes['WTI'], 2)} | "
+        f"{_format_quote('Gold', quotes['Gold'], 2)}"
+    )

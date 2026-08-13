@@ -28,8 +28,6 @@ services:
         sync: false
       - key: GROQ_API_KEY
         sync: false
-      - key: GEMINI_API_KEY
-        sync: false
       - key: GOOGLE_CSE_API_KEY
         sync: false
       - key: GOOGLE_CSE_CX
@@ -41,4 +39,12 @@ services:
       - key: UPSTASH_REDIS_REST_URL
         sync: false
       - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      - key: ALPHA_VANTAGE_API_KEY
+        sync: false
+      - key: FINNHUB_API_KEY
+        sync: false
+      - key: TWELVE_DATA_API_KEY
+        sync: false
+      - key: CHART_IMG_API_KEY
         sync: false

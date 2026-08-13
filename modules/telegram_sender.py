@@ -101,6 +101,7 @@ async def send_photo_text_detailed(
     chat_id: str = None,
     message_thread_id: int | None = None,
     topic_key: str | None = None,
+    reply_markup=None,
 ) -> tuple[bool, str]:
     """Send media and recover a deleted forum topic once when necessary."""
     cid = chat_id or _default_chat_id()
@@ -109,17 +110,17 @@ async def send_photo_text_detailed(
     async def send_once():
         if isinstance(media, bytes):
             await bot.send_photo(chat_id=cid, photo=media, caption=caption,
-                                 parse_mode=ParseMode.HTML, **kwargs)
+                                 parse_mode=ParseMode.HTML, reply_markup=reply_markup, **kwargs)
         elif isinstance(media, str) and media.startswith("http"):
             await bot.send_photo(chat_id=cid, photo=media, caption=caption,
-                                 parse_mode=ParseMode.HTML, **kwargs)
+                                 parse_mode=ParseMode.HTML, reply_markup=reply_markup, **kwargs)
         elif isinstance(media, str) and media.endswith((".jpg", ".jpeg", ".png")):
             with open(media, "rb") as f:
                 await bot.send_photo(chat_id=cid, photo=f, caption=caption,
-                                     parse_mode=ParseMode.HTML, **kwargs)
+                                     parse_mode=ParseMode.HTML, reply_markup=reply_markup, **kwargs)
         else:
             await bot.send_message(chat_id=cid, text=caption, parse_mode=ParseMode.HTML,
-                                   **kwargs)
+                                   reply_markup=reply_markup, **kwargs)
 
     try:
         await send_once()
