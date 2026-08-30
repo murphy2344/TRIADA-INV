@@ -21,7 +21,10 @@
       "Bash(git pull *)",
       "Bash(git commit --amend -m 'Initial commit: TRIADA INVESTING bot with English forum topics *)",
       "Bash(git commit -m 'Send chart to user'\\\\''s private chat instead of group *)",
-      "Bash(git commit -m 'Remove notification from group when chart is sent *)"
+      "Bash(git commit -m 'Remove notification from group when chart is sent *)",
+      "Bash(git commit -m 'Add personal trading assistant features for users *)",
+      "Bash(git commit -m 'Add debug logging to /start command *)",
+      "Bash(git commit -m 'Add separate bot menu commands for admin and users *)"
     ]
   }
 }

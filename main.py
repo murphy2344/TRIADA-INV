@@ -13,7 +13,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from config.config import BOT_TOKEN, ADMIN_USERNAME, ADMIN_ID, CHANNEL_ID, GROUP_CHAT_ID
-from modules import pipeline, storage, dedup, forum_topics, telegram_monitor, user_commands
+from modules import pipeline, storage, dedup, forum_topics, telegram_monitor, user_commands, bot_commands
 from modules.scheduler import build_scheduler
 from modules.telegram_sender import notify_admin
 
@@ -592,6 +592,9 @@ async def main():
   async with application:
       await application.initialize()
       await application.start()
+
+      # Setup bot menu commands (different for admin and users)
+      await bot_commands.setup_bot_commands(application.bot, admin_id)
 
       topic_ids = await forum_topics.ensure_topics_exist(application.bot, GROUP_CHAT_ID)
       forum_topics.set_topic_ids(topic_ids)
