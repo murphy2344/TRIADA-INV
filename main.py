@@ -505,7 +505,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
   # Admin button handlers
   if data.startswith("admin_"):
       # Check if user is admin
+      logger.info(f"Admin button pressed by user.id={user.id}, user.username={user.username}")
+      logger.info(f"Config: ADMIN_ID={ADMIN_ID}, ADMIN_USERNAME={ADMIN_USERNAME}")
       is_admin = (user.username == ADMIN_USERNAME) or (str(user.id) == str(ADMIN_ID))
+      logger.info(f"is_admin={is_admin}")
       if not is_admin:
           await query.answer("❌ Доступно только администратору", show_alert=True)
           return
