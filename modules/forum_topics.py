@@ -207,6 +207,9 @@ async def _create_missing_topics(bot, group_chat_id: str, result: dict[str, int]
         if key in result:
             continue
         try:
+            # Check if a topic with this name already exists by trying to find it
+            # We'll create it and if it succeeds, save the ID
+            logger.info("Creating forum topic: %s (%s)", key, name)
             topic = await bot.create_forum_topic(chat_id=group_chat_id, name=name)
             thread_id = int(topic.message_thread_id)
             await _save_topic_id(group_chat_id, key, thread_id)
@@ -214,6 +217,12 @@ async def _create_missing_topics(bot, group_chat_id: str, result: dict[str, int]
             await _save_topic_map(group_chat_id, result)
             logger.info("Forum topic ready: %s=%s", key, thread_id)
         except TelegramError as exc:
+            # If topic already exists, Telegram returns an error
+            error_text = str(exc).lower()
+            if "topic" in error_text and "already" in error_text:
+                logger.warning("Forum topic %s already exists, skipping creation", key)
+                # Topic exists but we don't have the ID - will be discovered on next restart if posted to
+                continue
             logger.error("Could not create forum topic %s: %s", key, exc)
             await _notify_admin_topic_error(bot, name)
         except Exception:

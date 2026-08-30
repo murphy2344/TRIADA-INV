@@ -499,7 +499,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
   query = update.callback_query
   if not query:
       return
-  await query.answer()
   data = query.data or ""
   user = query.from_user
 
@@ -511,42 +510,41 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
           await query.answer("❌ Доступно только администратору", show_alert=True)
           return
 
+      await query.answer()
       admin_id = str(user.id)
 
-      if data == "admin_status":
-          await cmd_status(update, context)
-      elif data == "admin_test":
-          await cmd_test(update, context)
-      elif data == "admin_breaking":
-          await cmd_breaking(update, context)
-      elif data == "admin_hourly":
-          await cmd_hourly(update, context)
-      elif data == "admin_morning":
-          await cmd_morning(update, context)
-      elif data == "admin_evening":
-          await cmd_evening(update, context)
-      elif data == "admin_weekly":
-          await cmd_weekly(update, context)
-      elif data == "admin_monthly":
-          await cmd_monthly(update, context)
-      elif data == "admin_leaders":
-          await cmd_leaders(update, context)
-      elif data == "admin_pulse":
-          await cmd_pulse(update, context)
-      elif data == "admin_earnings":
-          await cmd_earnings(update, context)
-      elif data == "admin_calendar":
-          await cmd_calendar(update, context)
-      elif data == "admin_alerts":
-          await cmd_alerts(update, context)
-      elif data == "admin_heatmap":
-          await cmd_heatmap(update, context)
-      elif data == "admin_cot":
-          await cmd_cot(update, context)
-      elif data == "admin_13f":
-          await cmd_13f(update, context)
-      elif data == "admin_channels":
-          await cmd_channels(update, context)
+      # Map callbacks to command handlers
+      handlers_map = {
+          "admin_status": (cmd_status, "📊 Получаю статус..."),
+          "admin_test": (cmd_test, "🧪 Запускаю тест..."),
+          "admin_breaking": (cmd_breaking, "⚡ Проверяю срочные новости..."),
+          "admin_hourly": (cmd_hourly, "📰 Формирую часовой дайджест..."),
+          "admin_morning": (cmd_morning, "🌅 Формирую утренний обзор..."),
+          "admin_evening": (cmd_evening, "🌆 Формирую вечерний обзор..."),
+          "admin_weekly": (cmd_weekly, "📅 Формирую недельный итог..."),
+          "admin_monthly": (cmd_monthly, "📆 Формирую месячный итог..."),
+          "admin_leaders": (cmd_leaders, "🏆 Собираю лидеров рынка..."),
+          "admin_pulse": (cmd_pulse, "💹 Обновляю пульс рынка..."),
+          "admin_earnings": (cmd_earnings, "💹 Собираю дайджест отчётностей..."),
+          "admin_calendar": (cmd_calendar, "🗓 Загружаю экономический календарь..."),
+          "admin_alerts": (cmd_alerts, "📡 Проверяю технические алерты..."),
+          "admin_heatmap": (cmd_heatmap, "🌡 Генерирую тепловую карту..."),
+          "admin_cot": (cmd_cot, "📊 Загружаю COT Report..."),
+          "admin_13f": (cmd_13f, "🏦 Загружаю 13F отчёты..."),
+          "admin_channels": (cmd_channels, "📡 Получаю список каналов..."),
+      }
+
+      if data in handlers_map:
+          handler, loading_msg = handlers_map[data]
+          # Send loading message
+          await query.message.reply_text(loading_msg)
+          # Create a fake Update with message for command handlers
+          fake_update = Update(
+              update_id=update.update_id,
+              message=query.message,
+          )
+          context.bot_data["admin_id"] = admin_id
+          await handler(fake_update, context)
       return
 
   if data == "status":
