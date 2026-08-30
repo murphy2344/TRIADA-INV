@@ -119,36 +119,39 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
   if is_admin:
       text = (
           "🤖 <b>TRIADA INVESTING Bot — Admin Panel</b>\n\n"
-          "<b>Ручные команды:</b>\n"
-          "/breaking — срочные новости\n"
-          "/hourly — часовой дайджест\n"
-          "/morning — утренний обзор\n"
-          "/evening — вечерний обзор\n"
-          "/weekly — недельный итог\n"
-          "/monthly — месячный итог\n"
-          "/leaders — лидеры роста/падения\n"
-          "/pulse — обновить пульс рынка\n"
-          "/earnings — дайджест отчётностей\n"
-          "/calendar — экономический календарь\n"
-          "/alerts — технические алерты\n"
-          "/heatmap — тепловая карта секторов\n"
-          "/cot — позиции крупных игроков\n"
-          "/13f — отчёты крупных фондов\n\n"
-          "<b>Мониторинг:</b>\n"
-          "/channels — список каналов\n"
-          "/addchannel — добавить канал\n"
-          "/removechannel — удалить канал\n\n"
-          "<b>Служебные:</b>\n"
-          "/status — статус бота\n"
-          "/test — быстрый тест\n"
-          "/testall — полная диагностика\n\n"
-          "<b>Персональные команды:</b>\n"
+          "<b>📊 Персональные команды:</b>\n"
           "/portfolio — ваш портфель\n"
           "/watch — watchlist тикеров\n"
           "/alert — ценовые алерты\n"
           "/chart TICKER — график\n"
-          "/stats TICKER — статистика"
+          "/stats TICKER — статистика\n\n"
+          "<b>🔧 Служебные команды:</b>\n"
+          "Используйте кнопки ниже ↓"
       )
+
+      # Admin control buttons
+      from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+      keyboard = [
+          [InlineKeyboardButton("📊 Статус", callback_data="admin_status"),
+           InlineKeyboardButton("🧪 Тест", callback_data="admin_test")],
+          [InlineKeyboardButton("🔥 Breaking", callback_data="admin_breaking"),
+           InlineKeyboardButton("⏰ Hourly", callback_data="admin_hourly")],
+          [InlineKeyboardButton("🌅 Morning", callback_data="admin_morning"),
+           InlineKeyboardButton("🌆 Evening", callback_data="admin_evening")],
+          [InlineKeyboardButton("📅 Weekly", callback_data="admin_weekly"),
+           InlineKeyboardButton("📆 Monthly", callback_data="admin_monthly")],
+          [InlineKeyboardButton("🏆 Leaders", callback_data="admin_leaders"),
+           InlineKeyboardButton("💹 Pulse", callback_data="admin_pulse")],
+          [InlineKeyboardButton("📈 Earnings", callback_data="admin_earnings"),
+           InlineKeyboardButton("📅 Calendar", callback_data="admin_calendar")],
+          [InlineKeyboardButton("🔔 Alerts", callback_data="admin_alerts"),
+           InlineKeyboardButton("🗺 Heatmap", callback_data="admin_heatmap")],
+          [InlineKeyboardButton("📊 COT", callback_data="admin_cot"),
+           InlineKeyboardButton("💼 13F", callback_data="admin_13f")],
+          [InlineKeyboardButton("📺 Каналы", callback_data="admin_channels")],
+      ]
+
+      await update.message.reply_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
   else:
       text = (
           "👋 <b>Добро пожаловать в TRIADA INVESTING Bot!</b>\n\n"
@@ -171,7 +174,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
           "💡 <i>Подписывайтесь на канал для ежедневных новостей и аналитики!</i>"
       )
 
-  await update.message.reply_text(text, parse_mode="HTML")
+      await update.message.reply_text(text, parse_mode="HTML")
 
 
 @admin_only
@@ -498,6 +501,54 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
       return
   await query.answer()
   data = query.data or ""
+  user = query.from_user
+
+  # Admin button handlers
+  if data.startswith("admin_"):
+      # Check if user is admin
+      is_admin = (user.username == ADMIN_USERNAME) or (str(user.id) == str(ADMIN_ID))
+      if not is_admin:
+          await query.answer("❌ Доступно только администратору", show_alert=True)
+          return
+
+      admin_id = str(user.id)
+
+      if data == "admin_status":
+          await cmd_status(update, context)
+      elif data == "admin_test":
+          await cmd_test(update, context)
+      elif data == "admin_breaking":
+          await cmd_breaking(update, context)
+      elif data == "admin_hourly":
+          await cmd_hourly(update, context)
+      elif data == "admin_morning":
+          await cmd_morning(update, context)
+      elif data == "admin_evening":
+          await cmd_evening(update, context)
+      elif data == "admin_weekly":
+          await cmd_weekly(update, context)
+      elif data == "admin_monthly":
+          await cmd_monthly(update, context)
+      elif data == "admin_leaders":
+          await cmd_leaders(update, context)
+      elif data == "admin_pulse":
+          await cmd_pulse(update, context)
+      elif data == "admin_earnings":
+          await cmd_earnings(update, context)
+      elif data == "admin_calendar":
+          await cmd_calendar(update, context)
+      elif data == "admin_alerts":
+          await cmd_alerts(update, context)
+      elif data == "admin_heatmap":
+          await cmd_heatmap(update, context)
+      elif data == "admin_cot":
+          await cmd_cot(update, context)
+      elif data == "admin_13f":
+          await cmd_13f(update, context)
+      elif data == "admin_channels":
+          await cmd_channels(update, context)
+      return
+
   if data == "status":
       user = query.from_user
       if not user:

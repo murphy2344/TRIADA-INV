@@ -22,6 +22,7 @@ TOPIC_NAMES = {
     "markets": "📊 MARKETS",
     "crypto": "🪙 CRYPTO",
     "commodities": "🥇 COMMODITIES",
+    "chat": "💬 CHAT",
 }
 GENERAL_TOPIC_KEY = "general"
 
