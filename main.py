@@ -476,20 +476,27 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
       return
   if data.startswith("chart_"):
       ticker = data.removeprefix("chart_")
+      user = query.from_user
+      if not user:
+          return
       try:
           from modules import charting
           image = await asyncio.to_thread(charting.build_chart, ticker)
           if image:
-              await query.message.reply_photo(
+              # Send chart to user's private chat, not to the group
+              await context.bot.send_photo(
+                  chat_id=user.id,
                   photo=io.BytesIO(image),
                   caption=f"<b>{html.escape(ticker)}</b> · график TRIADA INVESTING",
                   parse_mode="HTML",
               )
+              # Notify user in group that chart was sent privately
+              await query.answer("📈 График отправлен вам в личку", show_alert=False)
           else:
-              await query.message.reply_text("График временно недоступен.")
+              await query.answer("График временно недоступен", show_alert=True)
       except Exception as exc:
           logger.error("Chart callback error: %s", exc)
-          await query.message.reply_text("Не удалось построить график.")
+          await query.answer("Не удалось построить график", show_alert=True)
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
