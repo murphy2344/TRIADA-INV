@@ -18,7 +18,10 @@
       "Bash(git add *)",
       "Bash(git commit -m 'Change forum topic names from Russian to English *)",
       "Bash(git push *)",
-      "Bash(git pull *)"
+      "Bash(git pull *)",
+      "Bash(git commit --amend -m 'Initial commit: TRIADA INVESTING bot with English forum topics *)",
+      "Bash(git commit -m 'Send chart to user'\\\\''s private chat instead of group *)",
+      "Bash(git commit -m 'Remove notification from group when chart is sent *)"
     ]
   }
 }

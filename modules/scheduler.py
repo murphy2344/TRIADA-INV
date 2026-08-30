@@ -1,7 +1,7 @@
 import logging
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from modules import pipeline
+from modules import pipeline, alert_checker
 
 logger = logging.getLogger(__name__)
 MSK = pytz.timezone("Europe/Moscow")
@@ -138,6 +138,12 @@ def build_scheduler(bot, admin_id: str) -> AsyncIOScheduler:
     scheduler.add_job(
         pipeline.run_13f_digest, "cron", day_of_week="mon", hour=10, minute=0,
         args=[bot, admin_id], id="filings_13f"
+    )
+
+    # User price alerts — каждые 5 минут
+    scheduler.add_job(
+        alert_checker.check_alerts, "interval", minutes=5,
+        args=[bot, admin_id], id="user_alerts"
     )
 
     return scheduler

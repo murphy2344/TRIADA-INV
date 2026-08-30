@@ -13,7 +13,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from config.config import BOT_TOKEN, ADMIN_USERNAME, ADMIN_ID, CHANNEL_ID, GROUP_CHAT_ID
-from modules import pipeline, storage, dedup, forum_topics, telegram_monitor
+from modules import pipeline, storage, dedup, forum_topics, telegram_monitor, user_commands
 from modules.scheduler import build_scheduler
 from modules.telegram_sender import notify_admin
 
@@ -109,34 +109,65 @@ def admin_only(func):
 
 
 # ─── Commands ─────────────────────────────────────────────────────────────────
-@admin_only
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-  text = (
-      "🤖 <b>TRIADA INVESTING Bot</b>\n\n"
-      "<b>Ручные команды:</b>\n"
-      "/breaking — срочные новости прямо сейчас\n"
-      "/hourly — часовой дайджест прямо сейчас\n"
-      "/morning — утренний обзор прямо сейчас\n"
-      "/evening — вечерний обзор прямо сейчас\n"
-      "/weekly — недельный итог прямо сейчас\n"
-      "/monthly — месячный итог прямо сейчас\n"
-      "/leaders — лидеры роста/падения мирового рынка\n"
-      "/pulse — обновить пульс рынка прямо сейчас\n"
-      "/earnings — дайджест отчётностей компаний\n"
-      "/calendar — экономический календарь\n"
-      "/alerts — технические алерты (RSI / SMA)\n"
-      "/heatmap — тепловая карта секторов\n"
-      "/cot — позиции крупных игроков (COT/CFTC)\n"
-      "/13f — отчёты крупных фондов (13F/SEC)\n\n"
-      "<b>Мониторинг Telegram-каналов:</b>\n"
-      "/channels — список каналов\n"
-      "/addchannel @channel — добавить канал\n"
-      "/removechannel @channel — удалить канал\n\n"
-      "<b>Служебные:</b>\n"
-      "/status — статус бота и статистика\n"
-      "/test — быстрый тест (breaking → hourly)\n\n"
-      "Бот публикует автоматически по расписанию МСК."
-  )
+  user = update.effective_user
+  is_admin = (user.username == ADMIN_USERNAME) or (str(user.id) == str(ADMIN_ID))
+
+  if is_admin:
+      text = (
+          "🤖 <b>TRIADA INVESTING Bot — Admin Panel</b>\n\n"
+          "<b>Ручные команды:</b>\n"
+          "/breaking — срочные новости\n"
+          "/hourly — часовой дайджест\n"
+          "/morning — утренний обзор\n"
+          "/evening — вечерний обзор\n"
+          "/weekly — недельный итог\n"
+          "/monthly — месячный итог\n"
+          "/leaders — лидеры роста/падения\n"
+          "/pulse — обновить пульс рынка\n"
+          "/earnings — дайджест отчётностей\n"
+          "/calendar — экономический календарь\n"
+          "/alerts — технические алерты\n"
+          "/heatmap — тепловая карта секторов\n"
+          "/cot — позиции крупных игроков\n"
+          "/13f — отчёты крупных фондов\n\n"
+          "<b>Мониторинг:</b>\n"
+          "/channels — список каналов\n"
+          "/addchannel — добавить канал\n"
+          "/removechannel — удалить канал\n\n"
+          "<b>Служебные:</b>\n"
+          "/status — статус бота\n"
+          "/test — быстрый тест\n"
+          "/testall — полная диагностика\n\n"
+          "<b>Персональные команды:</b>\n"
+          "/portfolio — ваш портфель\n"
+          "/watch — watchlist тикеров\n"
+          "/alert — ценовые алерты\n"
+          "/chart TICKER — график\n"
+          "/stats TICKER — статистика"
+      )
+  else:
+      text = (
+          "👋 <b>Добро пожаловать в TRIADA INVESTING Bot!</b>\n\n"
+          "🎯 <b>Ваш личный трейдинг-ассистент</b>\n\n"
+          "<b>📊 Портфель:</b>\n"
+          "/portfolio — посмотреть портфель\n"
+          "/add TICKER кол-во цена — добавить позицию\n"
+          "/remove TICKER — удалить позицию\n\n"
+          "<b>🔔 Алерты:</b>\n"
+          "/alert TICKER цена — установить алерт\n"
+          "/alert — список активных алертов\n"
+          "/delalert ID — удалить алерт\n\n"
+          "<b>👁 Watchlist:</b>\n"
+          "/watch — показать watchlist\n"
+          "/watch TICKER1 TICKER2 — добавить тикеры\n"
+          "/unwatch TICKER — удалить из списка\n\n"
+          "<b>📈 Анализ:</b>\n"
+          "/chart TICKER — получить график\n"
+          "/stats TICKER — быстрая статистика\n\n"
+          "💡 <i>Подписывайтесь на канал для ежедневных новостей и аналитики!</i>"
+      )
+
   await update.message.reply_text(text, parse_mode="HTML")
 
 
@@ -538,6 +569,18 @@ async def main():
   application.add_handler(CommandHandler("channels", cmd_channels))
   application.add_handler(CommandHandler("addchannel", cmd_addchannel))
   application.add_handler(CommandHandler("removechannel", cmd_removechannel))
+
+  # User commands (available to all users)
+  application.add_handler(CommandHandler("portfolio", user_commands.cmd_portfolio))
+  application.add_handler(CommandHandler("add", user_commands.cmd_add))
+  application.add_handler(CommandHandler("remove", user_commands.cmd_remove))
+  application.add_handler(CommandHandler("alert", user_commands.cmd_alert))
+  application.add_handler(CommandHandler("delalert", user_commands.cmd_delalert))
+  application.add_handler(CommandHandler("watch", user_commands.cmd_watch))
+  application.add_handler(CommandHandler("unwatch", user_commands.cmd_unwatch))
+  application.add_handler(CommandHandler("chart", user_commands.cmd_chart))
+  application.add_handler(CommandHandler("stats", user_commands.cmd_stats))
+
   application.add_handler(CallbackQueryHandler(handle_callback))
 
   admin_id = str(ADMIN_ID) if ADMIN_ID else ""

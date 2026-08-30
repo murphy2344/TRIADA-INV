@@ -73,6 +73,40 @@ async def init_db():
                 value TEXT
             )
         """)
+        # User portfolios
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS user_portfolios (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                ticker TEXT,
+                quantity REAL,
+                avg_price REAL,
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, ticker)
+            )
+        """)
+        # User price alerts
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS user_alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                ticker TEXT,
+                target_price REAL,
+                direction TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                triggered INTEGER DEFAULT 0
+            )
+        """)
+        # User watchlists
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS user_watchlists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                ticker TEXT,
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, ticker)
+            )
+        """)
         await db.commit()
     logger.info("Database initialized")
 
@@ -312,3 +346,130 @@ async def clear_stale_alerts(cooldown_hours: int = 24):
             except Exception:
                 continue
         await db.commit()
+
+
+# ─── User Portfolio Functions ────────────────────────────────────────────────
+
+async def add_to_portfolio(user_id: int, ticker: str, quantity: float, avg_price: float):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT INTO user_portfolios (user_id, ticker, quantity, avg_price)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(user_id, ticker) DO UPDATE SET
+               quantity = quantity + excluded.quantity,
+               avg_price = ((user_portfolios.quantity * user_portfolios.avg_price +
+                            excluded.quantity * excluded.avg_price) /
+                           (user_portfolios.quantity + excluded.quantity))""",
+            (user_id, ticker.upper(), quantity, avg_price)
+        )
+        await db.commit()
+
+
+async def remove_from_portfolio(user_id: int, ticker: str, quantity: float = None):
+    async with aiosqlite.connect(DB_PATH) as db:
+        if quantity is None:
+            await db.execute(
+                "DELETE FROM user_portfolios WHERE user_id = ? AND ticker = ?",
+                (user_id, ticker.upper())
+            )
+        else:
+            await db.execute(
+                """UPDATE user_portfolios SET quantity = quantity - ?
+                   WHERE user_id = ? AND ticker = ?""",
+                (quantity, user_id, ticker.upper())
+            )
+            await db.execute(
+                "DELETE FROM user_portfolios WHERE user_id = ? AND quantity <= 0",
+                (user_id,)
+            )
+        await db.commit()
+
+
+async def get_portfolio(user_id: int) -> list:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT ticker, quantity, avg_price FROM user_portfolios WHERE user_id = ?",
+            (user_id,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [{"ticker": r[0], "quantity": r[1], "avg_price": r[2]} for r in rows]
+
+
+# ─── User Alerts Functions ───────────────────────────────────────────────────
+
+async def add_alert(user_id: int, ticker: str, target_price: float, direction: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT INTO user_alerts (user_id, ticker, target_price, direction)
+               VALUES (?, ?, ?, ?)""",
+            (user_id, ticker.upper(), target_price, direction)
+        )
+        await db.commit()
+
+
+async def get_user_alerts(user_id: int) -> list:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            """SELECT id, ticker, target_price, direction FROM user_alerts
+               WHERE user_id = ? AND triggered = 0""",
+            (user_id,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [{"id": r[0], "ticker": r[1], "target_price": r[2], "direction": r[3]} for r in rows]
+
+
+async def get_all_active_alerts() -> list:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT id, user_id, ticker, target_price, direction FROM user_alerts WHERE triggered = 0"
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [{"id": r[0], "user_id": r[1], "ticker": r[2], "target_price": r[3], "direction": r[4]} for r in rows]
+
+
+async def mark_alert_triggered(alert_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE user_alerts SET triggered = 1 WHERE id = ?",
+            (alert_id,)
+        )
+        await db.commit()
+
+
+async def delete_alert(user_id: int, alert_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "DELETE FROM user_alerts WHERE id = ? AND user_id = ?",
+            (alert_id, user_id)
+        )
+        await db.commit()
+
+
+# ─── User Watchlist Functions ────────────────────────────────────────────────
+
+async def add_to_watchlist(user_id: int, ticker: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO user_watchlists (user_id, ticker) VALUES (?, ?)",
+            (user_id, ticker.upper())
+        )
+        await db.commit()
+
+
+async def remove_from_watchlist(user_id: int, ticker: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "DELETE FROM user_watchlists WHERE user_id = ? AND ticker = ?",
+            (user_id, ticker.upper())
+        )
+        await db.commit()
+
+
+async def get_watchlist(user_id: int) -> list:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT ticker FROM user_watchlists WHERE user_id = ?",
+            (user_id,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [r[0] for r in rows]
