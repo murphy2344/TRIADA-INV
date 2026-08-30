@@ -24,7 +24,8 @@
       "Bash(git commit -m 'Remove notification from group when chart is sent *)",
       "Bash(git commit -m 'Add personal trading assistant features for users *)",
       "Bash(git commit -m 'Add debug logging to /start command *)",
-      "Bash(git commit -m 'Add separate bot menu commands for admin and users *)"
+      "Bash(git commit -m 'Add separate bot menu commands for admin and users *)",
+      "Bash(git commit -m 'Send track record to private chat + improve logging *)"
     ]
   }
 }

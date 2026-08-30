@@ -8,6 +8,8 @@ logger = logging.getLogger(__name__)
 async def setup_bot_commands(bot, admin_id: str):
     """Set up bot menu commands with different visibility for admin and users."""
     try:
+        logger.info(f"Setting up bot commands. Admin ID: {admin_id}")
+
         # Commands for regular users (visible to everyone)
         user_commands = [
             BotCommand("start", "Начать работу с ботом"),
@@ -24,7 +26,7 @@ async def setup_bot_commands(bot, admin_id: str):
 
         # Set default commands for all users
         await bot.set_my_commands(user_commands, scope=BotCommandScopeDefault())
-        logger.info("User commands set successfully")
+        logger.info(f"User commands set successfully: {len(user_commands)} commands")
 
         # Admin commands (visible only to admin)
         if admin_id:

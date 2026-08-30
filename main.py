@@ -499,14 +499,23 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
   await query.answer()
   data = query.data or ""
   if data == "status":
+      user = query.from_user
+      if not user:
+          return
       stats = await storage.get_accuracy_stats(days=7)
-      await query.message.reply_text(
-          "📊 <b>Трек-рекорд за 7 дней</b>\n"
-          f"Сигналов: <b>{stats['total']}</b>\n"
-          f"Точность: <b>{stats['accuracy_pct'] or 'н/д'}%</b>\n"
-          f"Средний PnL: <b>{stats.get('avg_pnl', 0):+.2f}%</b>",
+      # Send track record to user's private chat
+      await context.bot.send_message(
+          chat_id=user.id,
+          text=(
+              "📊 <b>Трек-рекорд за 7 дней</b>\n\n"
+              f"Сигналов: <b>{stats['total']}</b>\n"
+              f"Точность: <b>{stats['accuracy_pct'] or 'н/д'}%</b>\n"
+              f"Средний PnL: <b>{stats.get('avg_pnl', 0):+.2f}%</b>"
+          ),
           parse_mode="HTML",
       )
+      # Silent acknowledgment
+      await query.answer()
       return
   if data.startswith("chart_"):
       ticker = data.removeprefix("chart_")
