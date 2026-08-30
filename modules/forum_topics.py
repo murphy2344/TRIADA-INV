@@ -22,7 +22,7 @@ TOPIC_NAMES = {
     "markets": "📊 MARKETS",
     "crypto": "🪙 CRYPTO",
     "commodities": "🥇 COMMODITIES",
-    "chat": "💬 CHAT",
+    # "chat": "💬 CHAT",  # Created manually, not managed by bot
 }
 GENERAL_TOPIC_KEY = "general"
 
