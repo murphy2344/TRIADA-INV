@@ -628,6 +628,78 @@ async def run_13f_digest(bot, admin_id: str = None) -> int:
         return 0
 
 
+async def run_market_snapshot(bot, admin_id: str = None) -> int:
+    """Market snapshot - overview of global markets every 4 hours."""
+    try:
+        from modules import market_snapshot
+
+        data = await market_snapshot.fetch_market_snapshot()
+        if not data:
+            logger.info("run_market_snapshot: no data available")
+            return 0
+
+        text = market_snapshot.format_market_snapshot(data)
+        sentiment = await market_snapshot.get_market_sentiment()
+        text += f"\n\n<b>Настроение рынка:</b> {sentiment}"
+
+        ok = await telegram_sender.send_text(bot, text, **_topic_kwargs_for_key("markets"))
+        if ok:
+            await storage.increment_stats()
+            return 1
+        return 0
+    except Exception as e:
+        logger.error(f"run_market_snapshot error: {e}")
+        if admin_id:
+            await telegram_sender.notify_admin(bot, admin_id, f"❌ Market Snapshot: {e}")
+        return 0
+
+
+async def run_screener_breakouts(bot, admin_id: str = None) -> int:
+    """Daily screener - breakouts with volume."""
+    try:
+        from modules import market_screener
+
+        results = await market_screener.scan_breakouts()
+        if not results:
+            logger.info("run_screener_breakouts: no breakouts found")
+            return 0
+
+        text = market_screener.format_screener_results("breakouts", results)
+        ok = await telegram_sender.send_text(bot, text, **_topic_kwargs_for_key("markets"))
+        if ok:
+            await storage.increment_stats()
+            return 1
+        return 0
+    except Exception as e:
+        logger.error(f"run_screener_breakouts error: {e}")
+        if admin_id:
+            await telegram_sender.notify_admin(bot, admin_id, f"❌ Screener Breakouts: {e}")
+        return 0
+
+
+async def run_screener_top_movers(bot, admin_id: str = None) -> int:
+    """Daily screener - top gainers and losers."""
+    try:
+        from modules import market_screener
+
+        results = await market_screener.scan_top_movers()
+        if not results:
+            logger.info("run_screener_top_movers: no data")
+            return 0
+
+        text = market_screener.format_screener_results("top_movers", results)
+        ok = await telegram_sender.send_text(bot, text, **_topic_kwargs_for_key("markets"))
+        if ok:
+            await storage.increment_stats()
+            return 1
+        return 0
+    except Exception as e:
+        logger.error(f"run_screener_top_movers error: {e}")
+        if admin_id:
+            await telegram_sender.notify_admin(bot, admin_id, f"❌ Screener Top Movers: {e}")
+        return 0
+
+
 async def _get_fear_greed() -> str:
     import aiohttp
     try:

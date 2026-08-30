@@ -146,4 +146,22 @@ def build_scheduler(bot, admin_id: str) -> AsyncIOScheduler:
         args=[bot, admin_id], id="user_alerts"
     )
 
+    # Market Snapshot — каждые 4 часа (00:00, 04:00, 08:00, 12:00, 16:00, 20:00 MSK)
+    scheduler.add_job(
+        pipeline.run_market_snapshot, "cron", hour="0,4,8,12,16,20", minute=0,
+        args=[bot, admin_id], id="market_snapshot"
+    )
+
+    # Screener: Breakouts — раз в день в 10:00 MSK (после открытия рынков)
+    scheduler.add_job(
+        pipeline.run_screener_breakouts, "cron", hour=10, minute=0,
+        args=[bot, admin_id], id="screener_breakouts"
+    )
+
+    # Screener: Top Movers — раз в день в 23:00 MSK (итоги дня)
+    scheduler.add_job(
+        pipeline.run_screener_top_movers, "cron", hour=23, minute=0,
+        args=[bot, admin_id], id="screener_top_movers"
+    )
+
     return scheduler

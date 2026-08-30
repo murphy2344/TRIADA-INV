@@ -42,6 +42,8 @@ async def setup_bot_commands(bot, admin_id: str):
             BotCommand("monthly", "Месячный итог"),
             BotCommand("leaders", "Лидеры рынка"),
             BotCommand("pulse", "Обновить пульс рынка"),
+            BotCommand("snapshot", "Market Snapshot (глобальные рынки)"),
+            BotCommand("screener", "Screener (breakouts, top movers)"),
             BotCommand("earnings", "Дайджест отчётностей"),
             BotCommand("calendar", "Экономический календарь"),
             BotCommand("alerts", "Технические алерты"),

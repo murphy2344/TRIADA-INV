@@ -498,6 +498,38 @@ async def cmd_testall(update: Update, context: ContextTypes.DEFAULT_TYPE):
       await update.message.reply_text(f"❌ Ошибка диагностики: {e}")
 
 
+@admin_only
+async def cmd_snapshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  """Market snapshot — обзор рынков."""
+  await update.message.reply_text("📊 Собираю market snapshot...")
+  admin_id = str(update.effective_chat.id)
+  try:
+      posted = await pipeline.run_market_snapshot(context.bot, admin_id)
+      await update.message.reply_text(
+          "✅ Market snapshot опубликован." if posted > 0
+          else "❌ Не удалось получить данные."
+      )
+  except Exception as e:
+      await update.message.reply_text(f"❌ Ошибка: {e}")
+
+
+@admin_only
+async def cmd_screener(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  """Screener — breakouts и top movers."""
+  await update.message.reply_text("🔍 Запускаю screener...")
+  admin_id = str(update.effective_chat.id)
+  try:
+      posted = 0
+      posted += await pipeline.run_screener_breakouts(context.bot, admin_id)
+      posted += await pipeline.run_screener_top_movers(context.bot, admin_id)
+      await update.message.reply_text(
+          f"✅ Screener завершен, опубликовано: {posted}" if posted > 0
+          else "ℹ️ Нет интересных сигналов."
+      )
+  except Exception as e:
+      await update.message.reply_text(f"❌ Ошибка: {e}")
+
+
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
   """Handle the small set of buttons attached to analytical posts."""
   query = update.callback_query
@@ -648,6 +680,8 @@ async def main():
   application.add_handler(CommandHandler("channels", cmd_channels))
   application.add_handler(CommandHandler("addchannel", cmd_addchannel))
   application.add_handler(CommandHandler("removechannel", cmd_removechannel))
+  application.add_handler(CommandHandler("snapshot", cmd_snapshot))
+  application.add_handler(CommandHandler("screener", cmd_screener))
 
   # User commands (available to all users)
   application.add_handler(CommandHandler("portfolio", user_commands.cmd_portfolio))

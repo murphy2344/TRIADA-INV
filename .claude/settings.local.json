@@ -26,7 +26,16 @@
       "Bash(git commit -m 'Add debug logging to /start command *)",
       "Bash(git commit -m 'Add separate bot menu commands for admin and users *)",
       "Bash(git commit -m 'Send track record to private chat + improve logging *)",
-      "Bash(git commit -m 'Restructure admin commands and add CHAT topic *)"
+      "Bash(git commit -m 'Restructure admin commands and add CHAT topic *)",
+      "Bash(gh repo *)",
+      "Bash(git commit -m 'Fix bot commands visibility: separate menus for admin and users *)",
+      "Bash(git commit -m 'Fix admin callback buttons and prevent duplicate CHAT topics *)",
+      "Bash(git commit -m 'Add debug logging for admin button authentication *)",
+      "Bash(git commit -m 'Fix admin verification for callback buttons *)",
+      "Bash(git commit -m 'Remove CHAT topic from auto-creation *)",
+      "Bash(git commit -m 'Fix callback handlers to bypass @admin_only decorator *)",
+      "Bash(git commit -m 'Fix admin_only decorator to skip check for callback buttons *)",
+      "Bash(git commit -m 'Add Market Snapshot and Screener features *)"
     ]
   }
 }
