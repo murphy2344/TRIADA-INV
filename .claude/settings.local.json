@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git init *)",
+      "Bash(git remote *)",
+      "Bash(git config *)",
+      "Bash(git branch *)",
+      "WebFetch(domain:drive.google.com)",
+      "Read(//c/Users/01/Downloads/**)",
+      "Bash(unzip -q \"TRIADA GROUP-20260830T190549Z-1-001 \\(1\\).zip\" -d triada_docs)",
+      "Bash(pip install *)",
+      "Bash(python extract_docx.py \"/c/Users/01/Downloads/triada_docs/TRIADA GROUP/DOCUMENTS/VISION/Triada Group — это_.docx\")",
+      "Bash(python extract_docx.py \"/c/Users/01/Downloads/triada_docs/TRIADA GROUP/TRIADA AI/TRIADA INVESTING — Telegram-бот/TRIADA INVESTING — описание проекта и статус.docx\")",
+      "Bash(python extract_docx.py \"/c/Users/01/Downloads/triada_docs/TRIADA GROUP/TRIADA AI/Triada Intelligence Platform/Roadmap 2026.docx\")",
+      "Bash(python extract_docx.py \"/c/Users/01/Downloads/triada_docs/TRIADA GROUP/TRIADA AI/Triada Intelligence Platform/Triada Intelligence Platform.docx\")",
+      "Read(//tmp/**)",
+      "Bash(python extract_docx.py \"/c/Users/01/Downloads/triada_docs/TRIADA GROUP/TRIADA AI/TRIADA INVESTING — Telegram-бот/TRIADA INVESTING — описание проекта и статус.docx\" > /tmp/investing.txt && cat /tmp/investing.txt)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'Change forum topic names from Russian to English *)",
+      "Bash(git push *)",
+      "Bash(git pull *)"
+    ]
+  }
+}

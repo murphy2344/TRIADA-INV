@@ -1,0 +1,22 @@
+[project]
+name = "python-template"
+version = "0.1.0"
+description = ""
+authors = ["Your Name <you@example.com>"]
+requires-python = ">=3.11"
+dependencies = [
+    "apscheduler>=3.11.2",
+    "beautifulsoup4>=4.14.3",
+    "feedparser>=6.0.12",
+    "flask>=3.1.2",
+    "matplotlib>=3.10.8",
+    "mplfinance>=0.12.10b0",
+    "openai>=1.0.0",
+    "pandas>=3.0.0",
+    "python-telegram-bot>=22.6",
+    "pytz>=2025.2",
+    "requests>=2.32.5",
+    "telethon>=1.42.0",
+    "tweepy>=4.16.0",
+    "yfinance>=1.1.0",
+]
