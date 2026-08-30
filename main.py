@@ -542,20 +542,22 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
           # Send loading message
           await query.message.reply_text(loading_msg)
 
-          # Already verified admin above, set admin_id in context
+          # Set admin_id in context for the handler
           context.bot_data["admin_id"] = admin_id
 
-          # Create a modified message with correct user info for @admin_only decorator
-          modified_message = query.message
-          modified_message._from_user = user  # Set the actual user who pressed the button
+          # Get the underlying function (bypass @admin_only decorator)
+          # The decorator wraps the original function in a 'wrapper'
+          # To call the original, we access handler.__wrapped__ if it exists
+          original_handler = getattr(handler, '__wrapped__', handler)
 
-          # Create a fake Update with message for command handlers
+          # Create a simple fake update with the message for command handlers
           fake_update = Update(
               update_id=update.update_id,
-              message=modified_message,
+              message=query.message,
           )
 
-          await handler(fake_update, context)
+          # Call the original handler function directly (bypassing @admin_only check)
+          await original_handler(fake_update, context)
       return
 
   if data == "status":
