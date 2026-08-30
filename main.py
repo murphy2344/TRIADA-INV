@@ -91,6 +91,10 @@ def run_flask():
 # ─── Admin guard ──────────────────────────────────────────────────────────────
 def admin_only(func):
   async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+      # Check if admin verification was already done (e.g., in callback handler)
+      if context.bot_data.get("_skip_admin_check"):
+          return await func(update, context)
+
       user = update.effective_user
       if not user:
           return
@@ -545,19 +549,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
           # Set admin_id in context for the handler
           context.bot_data["admin_id"] = admin_id
 
-          # Get the underlying function (bypass @admin_only decorator)
-          # The decorator wraps the original function in a 'wrapper'
-          # To call the original, we access handler.__wrapped__ if it exists
-          original_handler = getattr(handler, '__wrapped__', handler)
-
-          # Create a simple fake update with the message for command handlers
+          # Create a fake update - we'll temporarily disable admin check
           fake_update = Update(
               update_id=update.update_id,
               message=query.message,
           )
 
-          # Call the original handler function directly (bypassing @admin_only check)
-          await original_handler(fake_update, context)
+          # Temporarily mark this context as "already verified admin" so @admin_only passes
+          context.bot_data["_skip_admin_check"] = True
+
+          try:
+              await handler(fake_update, context)
+          finally:
+              # Clean up the flag
+              context.bot_data.pop("_skip_admin_check", None)
       return
 
   if data == "status":
