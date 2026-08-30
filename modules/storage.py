@@ -91,8 +91,10 @@ async def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER,
                 ticker TEXT,
+                alert_type TEXT DEFAULT 'price',
                 target_price REAL,
                 direction TEXT,
+                params TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 triggered INTEGER DEFAULT 0
             )
@@ -400,9 +402,21 @@ async def get_portfolio(user_id: int) -> list:
 async def add_alert(user_id: int, ticker: str, target_price: float, direction: str):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            """INSERT INTO user_alerts (user_id, ticker, target_price, direction)
-               VALUES (?, ?, ?, ?)""",
+            """INSERT INTO user_alerts (user_id, ticker, alert_type, target_price, direction)
+               VALUES (?, ?, 'price', ?, ?)""",
             (user_id, ticker.upper(), target_price, direction)
+        )
+        await db.commit()
+
+
+async def add_smart_alert(user_id: int, ticker: str, alert_type: str, params: dict = None):
+    """Add a smart alert (breakout, RSI, volume, etc.)."""
+    import json
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT INTO user_alerts (user_id, ticker, alert_type, params)
+               VALUES (?, ?, ?, ?)""",
+            (user_id, ticker.upper(), alert_type, json.dumps(params or {}))
         )
         await db.commit()
 
@@ -410,21 +424,44 @@ async def add_alert(user_id: int, ticker: str, target_price: float, direction: s
 async def get_user_alerts(user_id: int) -> list:
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
-            """SELECT id, ticker, target_price, direction FROM user_alerts
+            """SELECT id, ticker, alert_type, target_price, direction, params FROM user_alerts
                WHERE user_id = ? AND triggered = 0""",
             (user_id,)
         ) as cursor:
             rows = await cursor.fetchall()
-            return [{"id": r[0], "ticker": r[1], "target_price": r[2], "direction": r[3]} for r in rows]
+            import json
+            return [
+                {
+                    "id": r[0],
+                    "ticker": r[1],
+                    "alert_type": r[2] or "price",
+                    "target_price": r[3],
+                    "direction": r[4],
+                    "params": json.loads(r[5]) if r[5] else {}
+                }
+                for r in rows
+            ]
 
 
 async def get_all_active_alerts() -> list:
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
-            "SELECT id, user_id, ticker, target_price, direction FROM user_alerts WHERE triggered = 0"
+            "SELECT id, user_id, ticker, alert_type, target_price, direction, params FROM user_alerts WHERE triggered = 0"
         ) as cursor:
             rows = await cursor.fetchall()
-            return [{"id": r[0], "user_id": r[1], "ticker": r[2], "target_price": r[3], "direction": r[4]} for r in rows]
+            import json
+            return [
+                {
+                    "id": r[0],
+                    "user_id": r[1],
+                    "ticker": r[2],
+                    "alert_type": r[3] or "price",
+                    "target_price": r[4],
+                    "direction": r[5],
+                    "params": json.loads(r[6]) if r[6] else {}
+                }
+                for r in rows
+            ]
 
 
 async def mark_alert_triggered(alert_id: int):

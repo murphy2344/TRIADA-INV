@@ -688,6 +688,7 @@ async def main():
   application.add_handler(CommandHandler("add", user_commands.cmd_add))
   application.add_handler(CommandHandler("remove", user_commands.cmd_remove))
   application.add_handler(CommandHandler("alert", user_commands.cmd_alert))
+  application.add_handler(CommandHandler("smartalert", user_commands.cmd_smartalert))
   application.add_handler(CommandHandler("delalert", user_commands.cmd_delalert))
   application.add_handler(CommandHandler("watch", user_commands.cmd_watch))
   application.add_handler(CommandHandler("unwatch", user_commands.cmd_unwatch))

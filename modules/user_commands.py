@@ -401,3 +401,85 @@ def _fetch_ticker_info(ticker: str) -> dict | None:
     except Exception as e:
         logger.error(f"Error fetching ticker info: {e}")
         return None
+
+
+async def cmd_smartalert(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Set smart alert: /smartalert TICKER type [params]
+
+    Types:
+    - breakout LEVEL - пробой вверх
+    - breakdown LEVEL - пробой вниз
+    - rsi_oversold - RSI < 30
+    - rsi_overbought - RSI > 70
+    - volume_spike - объем > 2x средний
+    - golden_cross - 50 SMA > 200 SMA
+    - death_cross - 50 SMA < 200 SMA
+    """
+    user_id = update.effective_user.id
+
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "🔔 <b>Умные алерты</b>\n\n"
+            "Использование: <code>/smartalert TICKER тип [параметры]</code>\n\n"
+            "<b>Доступные типы:</b>\n"
+            "• <code>breakout LEVEL</code> — пробой вверх\n"
+            "• <code>breakdown LEVEL</code> — пробой вниз\n"
+            "• <code>rsi_oversold</code> — RSI < 30\n"
+            "• <code>rsi_overbought</code> — RSI > 70\n"
+            "• <code>volume_spike</code> — объем > 2x средний\n"
+            "• <code>golden_cross</code> — 50 SMA > 200 SMA\n"
+            "• <code>death_cross</code> — 50 SMA < 200 SMA\n\n"
+            "<b>Примеры:</b>\n"
+            "<code>/smartalert AAPL breakout 180</code>\n"
+            "<code>/smartalert TSLA rsi_oversold</code>\n"
+            "<code>/smartalert SPY golden_cross</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    try:
+        ticker = context.args[0].upper()
+        alert_type = context.args[1].lower()
+
+        params = {}
+
+        # Parse parameters based on alert type
+        if alert_type in ["breakout", "breakdown"]:
+            if len(context.args) < 3:
+                await update.message.reply_text(f"❌ Укажите уровень для {alert_type}")
+                return
+            params["level"] = float(context.args[2])
+
+        # Validate alert type
+        valid_types = ["breakout", "breakdown", "rsi_oversold", "rsi_overbought",
+                      "volume_spike", "golden_cross", "death_cross"]
+        if alert_type not in valid_types:
+            await update.message.reply_text(f"❌ Неизвестный тип алерта: {alert_type}")
+            return
+
+        await storage.add_smart_alert(user_id, ticker, alert_type, params)
+
+        # Format message
+        type_names = {
+            "breakout": f"🚀 Пробой ${params.get('level', 0):.2f}",
+            "breakdown": f"📉 Пробой вниз ${params.get('level', 0):.2f}",
+            "rsi_oversold": "📊 RSI перепродан (<30)",
+            "rsi_overbought": "📊 RSI перекуплен (>70)",
+            "volume_spike": "💥 Всплеск объема (>2x)",
+            "golden_cross": "✨ Golden Cross (50>200 SMA)",
+            "death_cross": "💀 Death Cross (50<200 SMA)",
+        }
+
+        await update.message.reply_text(
+            f"✅ <b>Умный алерт установлен:</b>\n\n"
+            f"<b>{ticker}</b>\n"
+            f"{type_names.get(alert_type, alert_type)}\n\n"
+            f"Проверяется каждые 5 минут",
+            parse_mode="HTML"
+        )
+    except ValueError:
+        await update.message.reply_text("❌ Неверный формат параметров")
+    except Exception as e:
+        logger.error(f"Error setting smart alert: {e}")
+        await update.message.reply_text("❌ Ошибка при установке алерта")
+
