@@ -490,8 +490,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                   caption=f"<b>{html.escape(ticker)}</b> · график TRIADA INVESTING",
                   parse_mode="HTML",
               )
-              # Notify user in group that chart was sent privately
-              await query.answer("📈 График отправлен вам в личку", show_alert=False)
+              # Silent acknowledgment (no message in group)
+              await query.answer()
           else:
               await query.answer("График временно недоступен", show_alert=True)
       except Exception as exc:
