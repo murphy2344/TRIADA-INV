@@ -113,6 +113,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
   user = update.effective_user
   is_admin = (user.username == ADMIN_USERNAME) or (str(user.id) == str(ADMIN_ID))
 
+  # Debug logging
+  logger.info(f"User {user.id} (@{user.username}) - is_admin: {is_admin}, ADMIN_USERNAME: {ADMIN_USERNAME}, ADMIN_ID: {ADMIN_ID}")
+
   if is_admin:
       text = (
           "🤖 <b>TRIADA INVESTING Bot — Admin Panel</b>\n\n"
