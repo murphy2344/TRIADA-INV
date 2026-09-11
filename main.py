@@ -162,6 +162,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
            InlineKeyboardButton("🗺 Heatmap", callback_data="admin_heatmap")],
           [InlineKeyboardButton("📊 COT", callback_data="admin_cot"),
            InlineKeyboardButton("💼 13F", callback_data="admin_13f")],
+          [InlineKeyboardButton("🌡 Sentiment", callback_data="admin_sentiment"),
+           InlineKeyboardButton("📊 Sectors", callback_data="admin_sectors")],
+          [InlineKeyboardButton("🔍 Snapshot", callback_data="admin_snapshot"),
+           InlineKeyboardButton("📡 Screener", callback_data="admin_screener")],
           [InlineKeyboardButton("📺 Каналы", callback_data="admin_channels")],
       ]
 
@@ -615,6 +619,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
           "admin_heatmap": (cmd_heatmap, "🌡 Генерирую тепловую карту..."),
           "admin_cot": (cmd_cot, "📊 Загружаю COT Report..."),
           "admin_13f": (cmd_13f, "🏦 Загружаю 13F отчёты..."),
+          "admin_sentiment": (cmd_sentiment, "📊 Собираю индикаторы настроения..."),
+          "admin_sectors": (cmd_sectors, "📊 Анализирую секторы..."),
+          "admin_snapshot": (cmd_snapshot, "📊 Собираю market snapshot..."),
+          "admin_screener": (cmd_screener, "🔍 Запускаю screener..."),
           "admin_channels": (cmd_channels, "📡 Получаю список каналов..."),
       }
 
