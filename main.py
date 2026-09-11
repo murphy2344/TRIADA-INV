@@ -719,6 +719,7 @@ async def main():
   application.add_handler(CommandHandler("portfolio", user_commands.cmd_portfolio))
   application.add_handler(CommandHandler("add", user_commands.cmd_add))
   application.add_handler(CommandHandler("remove", user_commands.cmd_remove))
+  application.add_handler(CommandHandler("analyze", user_commands.cmd_analyze))
   application.add_handler(CommandHandler("alert", user_commands.cmd_alert))
   application.add_handler(CommandHandler("smartalert", user_commands.cmd_smartalert))
   application.add_handler(CommandHandler("delalert", user_commands.cmd_delalert))

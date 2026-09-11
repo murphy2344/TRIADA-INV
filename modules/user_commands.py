@@ -483,3 +483,36 @@ async def cmd_smartalert(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error setting smart alert: {e}")
         await update.message.reply_text("❌ Ошибка при установке алерта")
 
+
+async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Analyze portfolio: /analyze"""
+    user_id = update.effective_user.id
+
+    await update.message.reply_text("📊 Анализирую ваш портфель...")
+
+    try:
+        from modules import portfolio_analyzer
+
+        # Get user's portfolio
+        portfolio = await storage.get_portfolio(user_id)
+
+        if not portfolio:
+            await update.message.reply_text(
+                "❌ Ваш портфель пуст.\n\n"
+                "Добавьте позиции командой:\n"
+                "<code>/add TICKER количество цена</code>",
+                parse_mode="HTML"
+            )
+            return
+
+        # Perform analysis
+        analysis = await portfolio_analyzer.analyze_portfolio(portfolio)
+        result_text = portfolio_analyzer.format_portfolio_analysis(analysis)
+
+        await update.message.reply_text(result_text, parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Error analyzing portfolio: {e}")
+        await update.message.reply_text("❌ Ошибка при анализе портфеля")
+
+

@@ -40,7 +40,8 @@
       "Bash(git commit -m 'Enhance morning and evening reviews with market data *)",
       "Bash(git commit -m 'Add Fear & Greed Dashboard with sentiment indicators *)",
       "Bash(git commit -m 'Enhance Earnings Calendar with today/week views *)",
-      "Bash(git commit -m 'Add Sector Performance tracking with rotation analysis *)"
+      "Bash(git commit -m 'Add Sector Performance tracking with rotation analysis *)",
+      "Bash(git commit -m 'Add Portfolio Analyzer with risk metrics *)"
     ]
   }
 }

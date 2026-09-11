@@ -16,6 +16,7 @@ async def setup_bot_commands(bot, admin_id: str):
             BotCommand("portfolio", "Показать портфель"),
             BotCommand("add", "Добавить позицию (TICKER кол-во цена)"),
             BotCommand("remove", "Удалить позицию"),
+            BotCommand("analyze", "Анализ портфеля (риски, диверсификация)"),
             BotCommand("alert", "Установить ценовой алерт"),
             BotCommand("smartalert", "Умный алерт (breakout, RSI, volume)"),
             BotCommand("delalert", "Удалить алерт"),
