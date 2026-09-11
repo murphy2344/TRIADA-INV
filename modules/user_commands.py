@@ -516,3 +516,44 @@ async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Ошибка при анализе портфеля")
 
 
+async def cmd_compare(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Compare multiple tickers: /compare AAPL MSFT GOOGL"""
+    if not context.args or len(context.args) < 2:
+        await update.message.reply_text(
+            "📊 <b>Сравнение тикеров</b>\n\n"
+            "Использование: <code>/compare TICKER1 TICKER2 [TICKER3 ...]</code>\n\n"
+            "<b>Примеры:</b>\n"
+            "<code>/compare AAPL MSFT</code>\n"
+            "<code>/compare AAPL MSFT GOOGL</code>\n"
+            "<code>/compare TSLA NIO RIVN</code>\n\n"
+            "Сравнивает:\n"
+            "• Цену и капитализацию\n"
+            "• Оценку (P/E, P/S, P/B)\n"
+            "• Рост (выручка, прибыль)\n"
+            "• Доходность (1М, 3М, 6М, 1Y)\n"
+            "• Корреляцию цен",
+            parse_mode="HTML"
+        )
+        return
+
+    tickers = [arg.upper() for arg in context.args]
+
+    if len(tickers) > 5:
+        await update.message.reply_text("❌ Максимум 5 тикеров для сравнения")
+        return
+
+    await update.message.reply_text(f"📊 Сравниваю {', '.join(tickers)}...")
+
+    try:
+        from modules import ticker_compare
+
+        comparison = await ticker_compare.compare_tickers(tickers)
+        result_text = ticker_compare.format_comparison(comparison)
+
+        await update.message.reply_text(result_text, parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Error comparing tickers: {e}")
+        await update.message.reply_text("❌ Ошибка при сравнении тикеров")
+
+
