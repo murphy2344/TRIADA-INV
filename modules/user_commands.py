@@ -557,3 +557,49 @@ async def cmd_compare(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Ошибка при сравнении тикеров")
 
 
+async def cmd_backtest(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Backtest a trade: /backtest buy AAPL 2020-01-01 10000"""
+    if not context.args or len(context.args) < 4:
+        await update.message.reply_text(
+            "📈 <b>Бэктестинг сделок</b>\n\n"
+            "Использование: <code>/backtest действие TICKER дата сумма</code>\n\n"
+            "<b>Примеры:</b>\n"
+            "<code>/backtest buy AAPL 2020-01-01 10000</code>\n"
+            "<code>/backtest sell TSLA 2021-11-01 5000</code>\n\n"
+            "<b>Действия:</b>\n"
+            "• <code>buy</code> — длинная позиция\n"
+            "• <code>sell</code> — короткая позиция (шорт)\n\n"
+            "Покажет:\n"
+            "• Сколько бы вы заработали/потеряли\n"
+            "• Годовую доходность\n"
+            "• Сравнение с S&P 500",
+            parse_mode="HTML"
+        )
+        return
+
+    try:
+        action = context.args[0].lower()
+        ticker = context.args[1].upper()
+        date = context.args[2]
+        amount = float(context.args[3])
+
+        if action not in ["buy", "sell"]:
+            await update.message.reply_text("❌ Действие должно быть 'buy' или 'sell'")
+            return
+
+        await update.message.reply_text(f"📊 Тестирую сделку {action.upper()} {ticker}...")
+
+        from modules import backtester
+
+        result = await backtester.backtest_trade(action, ticker, date, amount)
+        result_text = backtester.format_backtest(result)
+
+        await update.message.reply_text(result_text, parse_mode="HTML")
+
+    except ValueError:
+        await update.message.reply_text("❌ Неверный формат суммы. Используйте число.")
+    except Exception as e:
+        logger.error(f"Error running backtest: {e}")
+        await update.message.reply_text("❌ Ошибка при выполнении бэктеста")
+
+
