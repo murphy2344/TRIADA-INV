@@ -176,35 +176,31 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
   else:
       text = (
           "👋 <b>Добро пожаловать в TRIADA INVESTING Bot!</b>\n\n"
-          "🎯 <b>Ваш личный трейдинг-ассистент</b>\n\n"
-          "<b>📊 Портфель:</b>\n"
-          "/portfolio — посмотреть портфель\n"
-          "/add TICKER кол-во цена — добавить позицию\n"
-          "/remove TICKER — удалить позицию\n"
-          "/analyze — анализ портфеля (риски, диверсификация)\n\n"
-          "<b>🔔 Алерты:</b>\n"
-          "/alert TICKER цена — установить алерт\n"
-          "/smartalert — умный алерт (breakout, RSI, volume)\n"
-          "/delalert ID — удалить алерт\n\n"
-          "<b>👁 Watchlist:</b>\n"
-          "/watch — показать watchlist\n"
-          "/watch TICKER1 TICKER2 — добавить тикеры\n"
-          "/unwatch TICKER — удалить из списка\n"
-          "/news — новости по вашему watchlist\n\n"
-          "<b>📈 Анализ:</b>\n"
-          "/chart TICKER — получить график\n"
-          "/stats TICKER — быстрая статистика\n"
-          "/compare AAPL MSFT GOOGL — сравнить тикеры\n"
-          "/backtest buy AAPL 2020-01-01 10000 — бэктест сделки\n"
-          "/ideas — AI торговые идеи (персональные)\n\n"
-          "<b>🔍 Фундаментальный анализ:</b>\n"
-          "/fundamentals AAPL — финансовые отчёты компании\n"
-          "/peers TSLA — сравнение с конкурентами\n"
-          "/analysts NVDA — мнение аналитиков Wall Street\n\n"
-          "💡 <i>Подписывайтесь на канал для ежедневных новостей и аналитики!</i>"
+          "🎯 <b>Ваш личный трейдинг-терминал в Telegram</b>\n\n"
+          "💡 Все инструменты для анализа рынка в одном месте:\n"
+          "• Фундаментальный анализ компаний\n"
+          "• AI торговые идеи и сигналы\n"
+          "• Управление портфелем и алерты\n"
+          "• Новости и аналитика в реальном времени\n\n"
+          "👇 <b>Выберите действие:</b>"
       )
 
-      await update.message.reply_text(text, parse_mode="HTML")
+      # User interactive buttons
+      from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+      keyboard = [
+          [InlineKeyboardButton("📊 Мой портфель", callback_data="user_portfolio"),
+           InlineKeyboardButton("💡 AI Идеи", callback_data="user_ideas")],
+          [InlineKeyboardButton("🔍 Анализ компании", callback_data="user_fundamentals"),
+           InlineKeyboardButton("📈 Графики", callback_data="user_charts")],
+          [InlineKeyboardButton("🔔 Алерты", callback_data="user_alerts"),
+           InlineKeyboardButton("👁 Watchlist", callback_data="user_watchlist")],
+          [InlineKeyboardButton("📰 Новости", callback_data="user_news"),
+           InlineKeyboardButton("🎯 Сравнить акции", callback_data="user_compare")],
+          [InlineKeyboardButton("📚 Инструкция", callback_data="user_help"),
+           InlineKeyboardButton("💬 Обратная связь", callback_data="user_feedback")],
+      ]
+
+      await update.message.reply_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 @admin_only
@@ -593,6 +589,176 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
       return
   data = query.data or ""
   user = query.from_user
+
+  # User button handlers
+  if data.startswith("user_"):
+      await query.answer()
+
+      if data == "user_portfolio":
+          await query.message.reply_text(
+              "📊 <b>Управление портфелем</b>\n\n"
+              "<b>Просмотр:</b>\n"
+              "/portfolio — показать портфель\n"
+              "/analyze — анализ (риски, диверсификация)\n\n"
+              "<b>Добавление позиций:</b>\n"
+              "/add TICKER количество цена\n"
+              "Пример: <code>/add AAPL 10 170.5</code>\n\n"
+              "<b>Удаление:</b>\n"
+              "/remove TICKER",
+              parse_mode="HTML"
+          )
+          return
+
+      if data == "user_ideas":
+          await query.message.reply_text(
+              "💡 <b>AI Торговые идеи</b>\n\n"
+              "Команда: /ideas\n\n"
+              "Показывает персональные торговые идеи на основе:\n"
+              "• Вашего портфеля\n"
+              "• Вашего watchlist\n"
+              "• Технического анализа (RSI, SMA, momentum)\n"
+              "• Оценки (P/E, рост, волатильность)\n\n"
+              "Сигналы: BUY, SELL, WATCH, NEUTRAL",
+              parse_mode="HTML"
+          )
+          return
+
+      if data == "user_fundamentals":
+          await query.message.reply_text(
+              "🔍 <b>Фундаментальный анализ</b>\n\n"
+              "<b>Финансовые отчёты компании:</b>\n"
+              "/fundamentals TICKER\n"
+              "Пример: <code>/fundamentals AAPL</code>\n\n"
+              "<b>Сравнение с конкурентами:</b>\n"
+              "/peers TICKER\n"
+              "Пример: <code>/peers TSLA</code>\n\n"
+              "<b>Мнение аналитиков Wall Street:</b>\n"
+              "/analysts TICKER\n"
+              "Пример: <code>/analysts NVDA</code>\n\n"
+              "💡 Используйте эти команды для принятия решений о покупке/продаже",
+              parse_mode="HTML"
+          )
+          return
+
+      if data == "user_charts":
+          await query.message.reply_text(
+              "📈 <b>Графики и статистика</b>\n\n"
+              "<b>График тикера:</b>\n"
+              "/chart TICKER\n"
+              "Пример: <code>/chart AAPL</code>\n\n"
+              "<b>Быстрая статистика:</b>\n"
+              "/stats TICKER\n"
+              "Пример: <code>/stats TSLA</code>\n\n"
+              "<b>Бэктестинг сделки:</b>\n"
+              "/backtest action TICKER дата сумма\n"
+              "Пример: <code>/backtest buy AAPL 2020-01-01 10000</code>",
+              parse_mode="HTML"
+          )
+          return
+
+      if data == "user_alerts":
+          await query.message.reply_text(
+              "🔔 <b>Система алертов</b>\n\n"
+              "<b>Ценовой алерт:</b>\n"
+              "/alert TICKER цена\n"
+              "Пример: <code>/alert AAPL 180</code>\n\n"
+              "<b>Умные алерты (technical):</b>\n"
+              "/smartalert TICKER тип порог\n"
+              "Типы: breakout, rsi_oversold, rsi_overbought, volume_spike\n"
+              "Пример: <code>/smartalert TSLA breakout 200</code>\n\n"
+              "<b>Удалить алерт:</b>\n"
+              "/delalert ID",
+              parse_mode="HTML"
+          )
+          return
+
+      if data == "user_watchlist":
+          await query.message.reply_text(
+              "👁 <b>Watchlist</b>\n\n"
+              "<b>Просмотр списка:</b>\n"
+              "/watch\n\n"
+              "<b>Добавить тикеры:</b>\n"
+              "/watch TICKER1 TICKER2 TICKER3\n"
+              "Пример: <code>/watch AAPL MSFT GOOGL</code>\n\n"
+              "<b>Удалить из списка:</b>\n"
+              "/unwatch TICKER\n"
+              "Пример: <code>/unwatch AAPL</code>\n\n"
+              "<b>Новости по watchlist:</b>\n"
+              "/news — показывает последние новости по вашим тикерам",
+              parse_mode="HTML"
+          )
+          return
+
+      if data == "user_news":
+          await query.message.reply_text(
+              "📰 <b>Новости</b>\n\n"
+              "<b>Новости по вашему watchlist:</b>\n"
+              "/news — последние новости по вашим тикерам\n\n"
+              "💡 Сначала добавьте тикеры в watchlist командой:\n"
+              "<code>/watch AAPL TSLA NVDA</code>\n\n"
+              "Также подписывайтесь на канал для:\n"
+              "• Срочных новостей (breaking)\n"
+              "• Часовых дайджестов\n"
+              "• Утренних и вечерних обзоров\n"
+              "• Earnings календаря",
+              parse_mode="HTML"
+          )
+          return
+
+      if data == "user_compare":
+          await query.message.reply_text(
+              "🎯 <b>Сравнение акций</b>\n\n"
+              "<b>Сравнить несколько тикеров:</b>\n"
+              "/compare TICKER1 TICKER2 TICKER3\n"
+              "Пример: <code>/compare AAPL MSFT GOOGL</code>\n\n"
+              "Показывает:\n"
+              "• Оценку (P/E, P/S, P/B)\n"
+              "• Рост (1M, 3M, 6M, 1Y)\n"
+              "• Размер (Market Cap)\n"
+              "• Волатильность (Beta)\n"
+              "• Корреляцию движения цен\n\n"
+              "Можно сравнить от 2 до 5 тикеров",
+              parse_mode="HTML"
+          )
+          return
+
+      if data == "user_help":
+          await query.message.reply_text(
+              "📚 <b>Полная инструкция</b>\n\n"
+              "<b>🎯 Быстрый старт для новичков:</b>\n\n"
+              "1️⃣ <b>Анализ компании</b>\n"
+              "   /fundamentals AAPL — финансовые отчёты\n"
+              "   /analysts AAPL — что говорят аналитики\n"
+              "   /chart AAPL — посмотреть график\n\n"
+              "2️⃣ <b>Создать watchlist</b>\n"
+              "   /watch AAPL TSLA NVDA — добавить тикеры\n"
+              "   /news — читать новости по ним\n\n"
+              "3️⃣ <b>Добавить портфель</b>\n"
+              "   /add AAPL 10 170.5 — купили 10 акций\n"
+              "   /portfolio — посмотреть P&L\n"
+              "   /ideas — получить AI рекомендации\n\n"
+              "4️⃣ <b>Настроить алерты</b>\n"
+              "   /alert AAPL 200 — уведомление при $200\n\n"
+              "<b>💡 Совет:</b> Начните с команды /fundamentals для любой интересной акции!\n\n"
+              "Для подробной справки по каждой функции нажимайте кнопки в главном меню.",
+              parse_mode="HTML"
+          )
+          return
+
+      if data == "user_feedback":
+          await query.message.reply_text(
+              "💬 <b>Обратная связь</b>\n\n"
+              "Мы постоянно улучшаем бота и добавляем новые функции!\n\n"
+              "<b>Хотите что-то предложить?</b>\n"
+              "Напишите ваши идеи, пожелания или найденные баги:\n\n"
+              "📧 Просто напишите сообщение здесь в чате, начиная со слова <b>ИДЕЯ</b>\n\n"
+              "Пример:\n"
+              "<code>ИДЕЯ: Добавьте анализ опционов</code>\n\n"
+              "Мы читаем все сообщения и реализуем лучшие идеи! 🚀",
+              parse_mode="HTML"
+          )
+          return
+      return
 
   # Admin button handlers
   if data.startswith("admin_"):
