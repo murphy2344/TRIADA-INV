@@ -20,6 +20,7 @@ async def setup_bot_commands(bot, admin_id: str):
             BotCommand("compare", "Сравнить тикеры (AAPL MSFT GOOGL)"),
             BotCommand("backtest", "Бэктест сделки (buy AAPL 2020-01-01 10000)"),
             BotCommand("news", "Новости по вашему watchlist"),
+            BotCommand("ideas", "AI торговые идеи (персональные)"),
             BotCommand("alert", "Установить ценовой алерт"),
             BotCommand("smartalert", "Умный алерт (breakout, RSI, volume)"),
             BotCommand("delalert", "Удалить алерт"),

@@ -723,6 +723,7 @@ async def main():
   application.add_handler(CommandHandler("compare", user_commands.cmd_compare))
   application.add_handler(CommandHandler("backtest", user_commands.cmd_backtest))
   application.add_handler(CommandHandler("news", user_commands.cmd_news))
+  application.add_handler(CommandHandler("ideas", user_commands.cmd_ideas))
   application.add_handler(CommandHandler("alert", user_commands.cmd_alert))
   application.add_handler(CommandHandler("smartalert", user_commands.cmd_smartalert))
   application.add_handler(CommandHandler("delalert", user_commands.cmd_delalert))

@@ -635,3 +635,31 @@ async def cmd_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Ошибка при загрузке новостей")
 
 
+async def cmd_ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate AI trade ideas: /ideas"""
+    user_id = update.effective_user.id
+
+    # Get user's portfolio and watchlist
+    portfolio = await storage.get_portfolio(user_id)
+    watchlist = await storage.get_watchlist(user_id)
+
+    portfolio_tickers = [p["ticker"] for p in portfolio] if portfolio else []
+
+    await update.message.reply_text("💡 Анализирую рынок и генерирую торговые идеи...")
+
+    try:
+        from modules import trade_ideas
+
+        data = await trade_ideas.generate_trade_ideas(
+            portfolio_tickers=portfolio_tickers,
+            watchlist_tickers=watchlist,
+        )
+        result_text = trade_ideas.format_trade_ideas(data)
+
+        await update.message.reply_text(result_text, parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Error generating trade ideas: {e}")
+        await update.message.reply_text("❌ Ошибка при генерации идей")
+
+
