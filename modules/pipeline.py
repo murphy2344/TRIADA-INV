@@ -723,6 +723,29 @@ async def run_screener_top_movers(bot, admin_id: str = None) -> int:
         return 0
 
 
+async def run_fear_greed_dashboard(bot, admin_id: str = None) -> int:
+    """Fear & Greed Dashboard - sentiment indicators."""
+    try:
+        from modules import fear_greed
+
+        indicators = await fear_greed.fetch_all_indicators()
+        if not indicators:
+            logger.info("run_fear_greed_dashboard: no data available")
+            return 0
+
+        text = fear_greed.format_dashboard(indicators)
+        ok = await telegram_sender.send_text(bot, text, **_topic_kwargs_for_key("markets"))
+        if ok:
+            await storage.increment_stats()
+            return 1
+        return 0
+    except Exception as e:
+        logger.error(f"run_fear_greed_dashboard error: {e}")
+        if admin_id:
+            await telegram_sender.notify_admin(bot, admin_id, f"❌ Fear & Greed Dashboard: {e}")
+        return 0
+
+
 async def _get_fear_greed() -> str:
     import aiohttp
     try:

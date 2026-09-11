@@ -164,4 +164,10 @@ def build_scheduler(bot, admin_id: str) -> AsyncIOScheduler:
         args=[bot, admin_id], id="screener_top_movers"
     )
 
+    # Fear & Greed Dashboard — утро (09:00) и вечер (20:00) MSK
+    scheduler.add_job(
+        pipeline.run_fear_greed_dashboard, "cron", hour="9,20", minute=0,
+        args=[bot, admin_id], id="fear_greed_dashboard"
+    )
+
     return scheduler
