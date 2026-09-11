@@ -516,6 +516,29 @@ async def run_earnings_week(bot, admin_id: str = None) -> int:
         return 0
 
 
+async def run_sector_performance(bot, admin_id: str = None) -> int:
+    """Sector performance - which sectors are leading today."""
+    try:
+        from modules import sector_performance
+
+        sectors = await sector_performance.fetch_all_sectors()
+        if not sectors:
+            logger.info("run_sector_performance: no data available")
+            return 0
+
+        text = sector_performance.format_sector_performance(sectors)
+        ok = await telegram_sender.send_text(bot, text, **_topic_kwargs_for_key("markets"))
+        if ok:
+            await storage.increment_stats()
+            return 1
+        return 0
+    except Exception as e:
+        logger.error(f"run_sector_performance error: {e}")
+        if admin_id:
+            await telegram_sender.notify_admin(bot, admin_id, f"❌ Sector Performance: {e}")
+        return 0
+
+
 async def run_technical_alerts(bot, admin_id: str = None) -> int:
     """Только по ручной команде /alerts — убрано из расписания."""
     import modules.technical_alerts as technical_alerts

@@ -46,6 +46,7 @@ async def setup_bot_commands(bot, admin_id: str):
             BotCommand("snapshot", "Market Snapshot (глобальные рынки)"),
             BotCommand("screener", "Screener (breakouts, top movers)"),
             BotCommand("sentiment", "Fear & Greed Dashboard"),
+            BotCommand("sectors", "Sector Performance (ротация секторов)"),
             BotCommand("earnings", "Дайджест отчётностей"),
             BotCommand("calendar", "Экономический календарь"),
             BotCommand("alerts", "Технические алерты"),

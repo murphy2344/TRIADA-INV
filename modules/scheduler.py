@@ -182,4 +182,10 @@ def build_scheduler(bot, admin_id: str) -> AsyncIOScheduler:
         args=[bot, admin_id], id="fear_greed_dashboard"
     )
 
+    # Sector Performance — раз в день в 22:00 MSK (итоги торгового дня)
+    scheduler.add_job(
+        pipeline.run_sector_performance, "cron", hour=22, minute=0,
+        args=[bot, admin_id], id="sector_performance"
+    )
+
     return scheduler

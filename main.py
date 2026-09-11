@@ -545,6 +545,21 @@ async def cmd_sentiment(update: Update, context: ContextTypes.DEFAULT_TYPE):
       await update.message.reply_text(f"❌ Ошибка: {e}")
 
 
+@admin_only
+async def cmd_sectors(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  """Sector Performance — какие секторы лидируют."""
+  await update.message.reply_text("📊 Анализирую секторы...")
+  admin_id = str(update.effective_chat.id)
+  try:
+      posted = await pipeline.run_sector_performance(context.bot, admin_id)
+      await update.message.reply_text(
+          "✅ Sector Performance опубликован." if posted > 0
+          else "❌ Не удалось получить данные."
+      )
+  except Exception as e:
+      await update.message.reply_text(f"❌ Ошибка: {e}")
+
+
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
   """Handle the small set of buttons attached to analytical posts."""
   query = update.callback_query
@@ -698,6 +713,7 @@ async def main():
   application.add_handler(CommandHandler("snapshot", cmd_snapshot))
   application.add_handler(CommandHandler("screener", cmd_screener))
   application.add_handler(CommandHandler("sentiment", cmd_sentiment))
+  application.add_handler(CommandHandler("sectors", cmd_sectors))
 
   # User commands (available to all users)
   application.add_handler(CommandHandler("portfolio", user_commands.cmd_portfolio))
