@@ -663,3 +663,108 @@ async def cmd_ideas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Ошибка при генерации идей")
 
 
+async def cmd_fundamentals(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show fundamental analysis for a ticker."""
+    if not context.args:
+        await update.message.reply_text(
+            "📊 <b>Фундаментальный анализ</b>\n\n"
+            "Использование: <code>/fundamentals TICKER</code>\n\n"
+            "Пример: <code>/fundamentals AAPL</code>\n\n"
+            "Показывает финансовые отчёты, оценку (P/E, P/S, P/B), "
+            "рентабельность, рост, дивиденды и денежные потоки.",
+            parse_mode="HTML"
+        )
+        return
+
+    ticker = context.args[0].upper()
+    await update.message.reply_text(f"⏳ Загружаю фундаментальные данные для {ticker}...")
+
+    try:
+        from modules import fundamentals
+
+        data = await fundamentals.fetch_fundamentals(ticker)
+        if not data:
+            await update.message.reply_text(
+                f"❌ Не удалось получить данные для {ticker}\n"
+                "Проверьте правильность тикера."
+            )
+            return
+
+        result_text = fundamentals.format_fundamentals(data)
+        await update.message.reply_text(result_text, parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Error fetching fundamentals for {ticker}: {e}")
+        await update.message.reply_text("❌ Ошибка при загрузке данных")
+
+
+async def cmd_peers(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Compare ticker with industry peers."""
+    if not context.args:
+        await update.message.reply_text(
+            "🔍 <b>Сравнение с конкурентами</b>\n\n"
+            "Использование: <code>/peers TICKER</code>\n\n"
+            "Пример: <code>/peers TSLA</code>\n\n"
+            "Сравнивает компанию с основными конкурентами "
+            "по ключевым метрикам: P/E, рентабельность, рост, ROE.",
+            parse_mode="HTML"
+        )
+        return
+
+    ticker = context.args[0].upper()
+    await update.message.reply_text(f"⏳ Сравниваю {ticker} с конкурентами...")
+
+    try:
+        from modules import fundamentals
+
+        data = await fundamentals.fetch_peers(ticker)
+        if not data:
+            await update.message.reply_text(
+                f"❌ Не удалось получить данные для {ticker}\n"
+                "Проверьте правильность тикера."
+            )
+            return
+
+        result_text = fundamentals.format_peers(data)
+        await update.message.reply_text(result_text, parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Error fetching peers for {ticker}: {e}")
+        await update.message.reply_text("❌ Ошибка при загрузке данных")
+
+
+async def cmd_analysts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show analyst ratings and price targets."""
+    if not context.args:
+        await update.message.reply_text(
+            "🎯 <b>Мнение аналитиков</b>\n\n"
+            "Использование: <code>/analysts TICKER</code>\n\n"
+            "Пример: <code>/analysts NVDA</code>\n\n"
+            "Показывает консенсус-рейтинг аналитиков Уолл-стрит, "
+            "целевые цены и недавние изменения рекомендаций.",
+            parse_mode="HTML"
+        )
+        return
+
+    ticker = context.args[0].upper()
+    await update.message.reply_text(f"⏳ Загружаю мнения аналитиков для {ticker}...")
+
+    try:
+        from modules import fundamentals
+
+        data = await fundamentals.fetch_analysts(ticker)
+        if not data:
+            await update.message.reply_text(
+                f"❌ Не удалось получить данные для {ticker}\n"
+                "Проверьте правильность тикера."
+            )
+            return
+
+        result_text = fundamentals.format_analysts(data)
+        await update.message.reply_text(result_text, parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Error fetching analyst data for {ticker}: {e}")
+        await update.message.reply_text("❌ Ошибка при загрузке данных")
+
+

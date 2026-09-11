@@ -132,6 +132,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
           "/backtest buy AAPL 2020-01-01 10000 — бэктест сделки\n"
           "/news — новости по вашему watchlist\n"
           "/ideas — AI торговые идеи (персональные)\n"
+          "/fundamentals AAPL — фундаментальный анализ\n"
+          "/peers TSLA — сравнение с конкурентами\n"
+          "/analysts NVDA — мнение аналитиков\n"
           "/alert TICKER цена — установить алерт\n"
           "/smartalert — умный алерт (breakout, RSI, volume)\n"
           "/delalert ID — удалить алерт\n"
@@ -194,6 +197,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
           "/compare AAPL MSFT GOOGL — сравнить тикеры\n"
           "/backtest buy AAPL 2020-01-01 10000 — бэктест сделки\n"
           "/ideas — AI торговые идеи (персональные)\n\n"
+          "<b>🔍 Фундаментальный анализ:</b>\n"
+          "/fundamentals AAPL — финансовые отчёты компании\n"
+          "/peers TSLA — сравнение с конкурентами\n"
+          "/analysts NVDA — мнение аналитиков Wall Street\n\n"
           "💡 <i>Подписывайтесь на канал для ежедневных новостей и аналитики!</i>"
       )
 
@@ -747,6 +754,9 @@ async def main():
   application.add_handler(CommandHandler("backtest", user_commands.cmd_backtest))
   application.add_handler(CommandHandler("news", user_commands.cmd_news))
   application.add_handler(CommandHandler("ideas", user_commands.cmd_ideas))
+  application.add_handler(CommandHandler("fundamentals", user_commands.cmd_fundamentals))
+  application.add_handler(CommandHandler("peers", user_commands.cmd_peers))
+  application.add_handler(CommandHandler("analysts", user_commands.cmd_analysts))
   application.add_handler(CommandHandler("alert", user_commands.cmd_alert))
   application.add_handler(CommandHandler("smartalert", user_commands.cmd_smartalert))
   application.add_handler(CommandHandler("delalert", user_commands.cmd_delalert))
