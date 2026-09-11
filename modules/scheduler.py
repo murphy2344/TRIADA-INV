@@ -120,6 +120,18 @@ def build_scheduler(bot, admin_id: str) -> AsyncIOScheduler:
         args=[bot, admin_id], id="earnings_digest"
     )
 
+    # Earnings Today — каждое утро в 08:00 МСК
+    scheduler.add_job(
+        pipeline.run_earnings_today, "cron", hour=8, minute=0,
+        args=[bot, admin_id], id="earnings_today"
+    )
+
+    # Earnings This Week — по понедельникам в 08:30 МСК
+    scheduler.add_job(
+        pipeline.run_earnings_week, "cron", day_of_week="mon", hour=8, minute=30,
+        args=[bot, admin_id], id="earnings_week"
+    )
+
     # Тепловая карта секторов — раз в день, 23:30 МСК
     scheduler.add_job(
         pipeline.run_sector_heatmap, "cron", hour=23, minute=30,

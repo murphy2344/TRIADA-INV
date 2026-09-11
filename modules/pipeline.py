@@ -474,6 +474,48 @@ async def run_earnings_digest(bot, admin_id: str = None) -> int:
         return posted
 
 
+async def run_earnings_today(bot, admin_id: str = None) -> int:
+    """Earnings happening today - morning post."""
+    try:
+        today = await asyncio.to_thread(earnings.check_today)
+        if not today:
+            logger.info("run_earnings_today: no earnings today")
+            return 0
+
+        text = formatter.fmt_earnings_today(today)
+        ok = await telegram_sender.send_text(bot, text, **_topic_kwargs_for_key("companies"))
+        if ok:
+            await storage.increment_stats()
+            return 1
+        return 0
+    except Exception as e:
+        logger.error(f"run_earnings_today error: {e}")
+        if admin_id:
+            await telegram_sender.notify_admin(bot, admin_id, f"❌ Earnings Today: {e}")
+        return 0
+
+
+async def run_earnings_week(bot, admin_id: str = None) -> int:
+    """Earnings calendar for the week - Monday morning post."""
+    try:
+        week = await asyncio.to_thread(earnings.check_this_week)
+        if not week:
+            logger.info("run_earnings_week: no earnings this week")
+            return 0
+
+        text = formatter.fmt_earnings_week(week)
+        ok = await telegram_sender.send_text(bot, text, **_topic_kwargs_for_key("companies"))
+        if ok:
+            await storage.increment_stats()
+            return 1
+        return 0
+    except Exception as e:
+        logger.error(f"run_earnings_week error: {e}")
+        if admin_id:
+            await telegram_sender.notify_admin(bot, admin_id, f"❌ Earnings Week: {e}")
+        return 0
+
+
 async def run_technical_alerts(bot, admin_id: str = None) -> int:
     """Только по ручной команде /alerts — убрано из расписания."""
     import modules.technical_alerts as technical_alerts

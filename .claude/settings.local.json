@@ -38,7 +38,8 @@
       "Bash(git commit -m 'Add Market Snapshot and Screener features *)",
       "Bash(git commit -m 'Add Smart Alerts system for users *)",
       "Bash(git commit -m 'Enhance morning and evening reviews with market data *)",
-      "Bash(git commit -m 'Add Fear & Greed Dashboard with sentiment indicators *)"
+      "Bash(git commit -m 'Add Fear & Greed Dashboard with sentiment indicators *)",
+      "Bash(git commit -m 'Enhance Earnings Calendar with today/week views *)"
     ]
   }
 }

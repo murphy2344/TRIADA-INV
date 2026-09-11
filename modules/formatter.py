@@ -291,6 +291,62 @@ def fmt_earnings_upcoming(items: list) -> str:
     return "<b>СКОРО ОТЧЁТНОСТЬ</b>\n\n" + "\n".join(lines) + "\n\n#Отчетность #Акции #Инвестиции"
 
 
+def fmt_earnings_today(items: list) -> str:
+    """Format earnings happening today with timing (BMO/AMC)."""
+    if not items:
+        return ""
+
+    bmo = [i for i in items if i.get('time') == 'BMO']
+    amc = [i for i in items if i.get('time') == 'AMC']
+
+    lines = ["📅 <b>EARNINGS TODAY</b>\n"]
+
+    if bmo:
+        lines.append("<b>До открытия (BMO):</b>")
+        for i in bmo:
+            est = i.get('estimate')
+            est_str = f" (ожидание: ${est:.2f})" if est else ""
+            lines.append(f"• <b>{_e(i['ticker'])}</b>{est_str}")
+        lines.append("")
+
+    if amc:
+        lines.append("<b>После закрытия (AMC):</b>")
+        for i in amc:
+            est = i.get('estimate')
+            est_str = f" (ожидание: ${est:.2f})" if est else ""
+            lines.append(f"• <b>{_e(i['ticker'])}</b>{est_str}")
+
+    return "\n".join(lines) + "\n\n#Отчетность #Акции"
+
+
+def fmt_earnings_week(items: list) -> str:
+    """Format earnings for the week ahead."""
+    if not items:
+        return ""
+
+    from collections import defaultdict
+    by_day = defaultdict(list)
+
+    for i in items:
+        day_name = i.get('day_name', 'Unknown')
+        by_day[day_name].append(i)
+
+    lines = ["📅 <b>EARNINGS THIS WEEK</b>\n"]
+
+    days_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+    for day in days_order:
+        if day in by_day:
+            lines.append(f"<b>{day}:</b>")
+            for i in by_day[day]:
+                est = i.get('estimate')
+                est_str = f" (${est:.2f})" if est else ""
+                lines.append(f"• <b>{_e(i['ticker'])}</b>{est_str}")
+            lines.append("")
+
+    return "\n".join(lines) + "#Отчетность #Акции"
+
+
 def fmt_earnings_recent(items: list) -> str:
     if not items:
         return ""
@@ -299,11 +355,22 @@ def fmt_earnings_recent(items: list) -> str:
         est = i.get("estimate")
         rep = i.get("reported")
         surprise = i.get("surprise_pct")
+        beat = i.get("beat")
+
         est_str = f"{est:.2f}" if est is not None else "н/д"
         rep_str = f"{rep:.2f}" if rep is not None else "н/д"
         surprise_str = f" ({'+' if (surprise or 0) >= 0 else ''}{surprise:.1f}%)" if surprise is not None else ""
+
+        # Add emoji based on beat/miss
+        if beat == "beat":
+            emoji = "✅"
+        elif beat == "miss":
+            emoji = "❌"
+        else:
+            emoji = "➖"
+
         lines.append(
-            f"• <b>{_e(i['ticker'])}</b>: факт <code>{rep_str}</code> "
+            f"{emoji} <b>{_e(i['ticker'])}</b>: факт <code>{rep_str}</code> "
             f"vs прогноз <code>{est_str}</code>{surprise_str}"
         )
     return "<b>ОТЧЁТНОСТЬ: ФАКТ ПРОТИВ ПРОГНОЗА</b>\n\n" + "\n".join(lines) + "\n\n#Отчетность #Акции #Инвестиции"
