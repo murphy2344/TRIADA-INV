@@ -273,6 +273,18 @@ async def run_morning(bot, admin_id: str = None):
 
     analyses       = await asyncio.to_thread(ai_analyzer.analyze_batch, fresh, "MORNING") if fresh else []
     header, body   = formatter.fmt_morning(analyses, date_str, fng)
+
+    # Add Market Snapshot to morning review
+    try:
+        from modules import market_snapshot
+        snapshot_data = await market_snapshot.fetch_market_snapshot()
+        if snapshot_data:
+            snapshot_text = market_snapshot.format_market_snapshot(snapshot_data)
+            sentiment = await market_snapshot.get_market_sentiment()
+            body += f"\n\n{snapshot_text}\n\n<b>Настроение рынка:</b> {sentiment}"
+    except Exception as e:
+        logger.warning(f"Failed to add market snapshot to morning review: {e}")
+
     photo          = "assets/stubs/morning.jpg"
     ok             = await telegram_sender.send_two_messages(
         bot, photo, header, body, **_topic_kwargs_for_analyses(analyses)
@@ -305,6 +317,17 @@ async def run_evening(bot, admin_id: str = None):
 
     analyses     = await asyncio.to_thread(ai_analyzer.analyze_batch, fresh, "EVENING") if fresh else []
     header, body = formatter.fmt_evening(analyses, date_str, fng)
+
+    # Add Top Movers to evening review
+    try:
+        from modules import market_screener
+        movers = await market_screener.scan_top_movers()
+        if movers:
+            movers_text = market_screener.format_screener_results("top_movers", movers)
+            body += f"\n\n{movers_text}"
+    except Exception as e:
+        logger.warning(f"Failed to add top movers to evening review: {e}")
+
     photo        = "assets/stubs/evening.jpg"
     ok           = await telegram_sender.send_two_messages(
         bot, photo, header, body, **_topic_kwargs_for_analyses(analyses)
