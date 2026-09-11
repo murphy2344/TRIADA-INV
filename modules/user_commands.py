@@ -603,3 +603,35 @@ async def cmd_backtest(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Ошибка при выполнении бэктеста")
 
 
+async def cmd_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Get news for watchlist tickers: /news"""
+    user_id = update.effective_user.id
+
+    # Get user's watchlist
+    watchlist = await storage.get_watchlist(user_id)
+
+    if not watchlist:
+        await update.message.reply_text(
+            "📰 <b>У вас нет тикеров в watchlist</b>\n\n"
+            "Добавьте тикеры командой:\n"
+            "<code>/watch AAPL MSFT TSLA</code>\n\n"
+            "Затем используйте <code>/news</code> чтобы получить новости по ним",
+            parse_mode="HTML"
+        )
+        return
+
+    await update.message.reply_text(f"📰 Загружаю новости для {len(watchlist)} тикеров...")
+
+    try:
+        from modules import watchlist_news
+
+        data = await watchlist_news.fetch_watchlist_news(watchlist, limit_per_ticker=3)
+        result_text = watchlist_news.format_news(data)
+
+        await update.message.reply_text(result_text, parse_mode="HTML", disable_web_page_preview=True)
+
+    except Exception as e:
+        logger.error(f"Error fetching watchlist news: {e}")
+        await update.message.reply_text("❌ Ошибка при загрузке новостей")
+
+

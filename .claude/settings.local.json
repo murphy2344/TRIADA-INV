@@ -43,7 +43,8 @@
       "Bash(git commit -m 'Add Sector Performance tracking with rotation analysis *)",
       "Bash(git commit -m 'Add Portfolio Analyzer with risk metrics *)",
       "Bash(git commit -m 'Add Ticker Comparison feature with correlation analysis *)",
-      "Bash(git commit -m 'Add Backtesting feature with S&P 500 benchmark *)"
+      "Bash(git commit -m 'Add Backtesting feature with S&P 500 benchmark *)",
+      "Bash(git commit -m 'Add Watchlist News feature with 7-day filtering *)"
     ]
   }
 }
