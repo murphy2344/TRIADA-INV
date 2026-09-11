@@ -867,6 +867,41 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
           await query.answer("Не удалось построить график", show_alert=True)
 
 
+async def handle_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  """Handle feedback messages from users."""
+  if not update.message or not update.message.text:
+      return
+
+  text = update.message.text.strip()
+  user = update.effective_user
+
+  # Check if message starts with "ИДЕЯ" or "IDEA"
+  if text.upper().startswith("ИДЕЯ") or text.upper().startswith("IDEA"):
+      # Forward to admin
+      admin_id = context.bot_data.get("admin_id", ADMIN_ID)
+      if admin_id:
+          feedback_text = (
+              f"💡 <b>Новая идея от пользователя</b>\n\n"
+              f"👤 От: {user.first_name} {user.last_name or ''} (@{user.username or 'без username'})\n"
+              f"🆔 ID: <code>{user.id}</code>\n\n"
+              f"📝 <b>Сообщение:</b>\n{html.escape(text)}"
+          )
+          await context.bot.send_message(
+              chat_id=admin_id,
+              text=feedback_text,
+              parse_mode="HTML"
+          )
+
+          # Confirm to user
+          await update.message.reply_text(
+              "✅ <b>Спасибо за вашу идею!</b>\n\n"
+              "Мы получили ваше сообщение и обязательно его рассмотрим. "
+              "Лучшие идеи реализуем в ближайших обновлениях! 🚀",
+              parse_mode="HTML"
+          )
+          logger.info(f"Feedback from user {user.id}: {text[:50]}...")
+
+
 # ─── Main ─────────────────────────────────────────────────────────────────────
 async def main():
   global application, scheduler
@@ -932,6 +967,10 @@ async def main():
   application.add_handler(CommandHandler("stats", user_commands.cmd_stats))
 
   application.add_handler(CallbackQueryHandler(handle_callback))
+
+  # Message handler for feedback (must be last, catches all text messages)
+  from telegram.ext import MessageHandler, filters
+  application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_feedback))
 
   admin_id = str(ADMIN_ID) if ADMIN_ID else ""
   application.bot_data["admin_id"] = admin_id
