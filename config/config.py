@@ -20,9 +20,9 @@ GEMINI_API_KEY = (
     or os.getenv("GOOGLE_GEMINI_API_KEY")
     or ""
 ).strip()
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 GEMINI_FALLBACK_MODEL = os.getenv(
-    "GEMINI_FALLBACK_MODEL", "gemini-2.5-flash-lite"
+    "GEMINI_FALLBACK_MODEL", "gemini-3.5-flash-lite"
 )
 
 # Optional Telegram forum group / User API monitor
