@@ -60,10 +60,49 @@ async def main():
         await storage.add_to_portfolio(user_id, ticker, 2.0, 10.0)
         await storage.add_to_portfolio(user_id, ticker, 1.0, 13.0)
         portfolio = await storage.get_portfolio(user_id)
-        if len(portfolio) != 1 or abs(float(portfolio[0]["quantity"]) - 3.0) > 1e-8:
-            raise RuntimeError(f"portfolio upsert failed: {portfolio!r}")
+        if (
+            len(portfolio) != 1
+            or abs(float(portfolio[0]["quantity"]) - 3.0) > 1e-8
+            or abs(float(portfolio[0]["avg_price"]) - 11.0) > 1e-8
+        ):
+            raise RuntimeError(f"portfolio upsert/weighted-average failed: {portfolio!r}")
+
         await storage.add_alert(user_id, ticker, 12.5, "above")
         await storage.add_smart_alert(user_id, ticker, "smoke-test", {"test": True})
+        alerts = await storage.get_user_alerts(user_id)
+        if len(alerts) != 2:
+            raise RuntimeError(f"alert insert/read failed: {alerts!r}")
+        price_alert = next((item for item in alerts if item["alert_type"] == "price"), None)
+        smart_alert = next((item for item in alerts if item["alert_type"] == "smoke-test"), None)
+        if (
+            price_alert is None
+            or abs(float(price_alert["target_price"]) - 12.5) > 1e-8
+            or price_alert["direction"] != "above"
+        ):
+            raise RuntimeError(f"price alert fields did not round-trip: {alerts!r}")
+        if smart_alert is None or smart_alert["params"] != {"test": True}:
+            raise RuntimeError(f"smart alert JSON did not round-trip: {alerts!r}")
+
+        await storage.mark_alert_triggered(price_alert["id"])
+        active_for_user = [
+            item for item in await storage.get_all_active_alerts()
+            if item["user_id"] == user_id
+        ]
+        if len(active_for_user) != 1 or active_for_user[0]["id"] != smart_alert["id"]:
+            raise RuntimeError(f"active-alert filtering/trigger update failed: {active_for_user!r}")
+        await storage.delete_alert(user_id, smart_alert["id"])
+        if await storage.get_user_alerts(user_id):
+            raise RuntimeError("alert delete failed")
+
+        await storage.add_to_watchlist(user_id, ticker)
+        await storage.add_to_watchlist(user_id, ticker)
+        watchlist = await storage.get_watchlist(user_id)
+        if watchlist != [ticker]:
+            raise RuntimeError(f"watchlist duplicate-safe insert/read failed: {watchlist!r}")
+        await storage.remove_from_watchlist(user_id, ticker)
+        if ticker in await storage.get_watchlist(user_id):
+            raise RuntimeError("watchlist delete failed")
+
         await storage.save_recommendation(ticker, tag, "buy", 10.0, category="smoke_test", confidence=0.5, source="smoke-test")
         async with db_compat.connect(DB_PATH) as db:
             async with db.execute(
