@@ -158,7 +158,7 @@ def _chart_img(ticker: str) -> bytes | None:
 
 
 def get_current_price(ticker_raw: str) -> float | None:
-   """Текущая цена актива — для трек-рекорда рекомендаций."""
+    """Текущая цена актива — для трек-рекорда рекомендаций."""
     ticker = resolve_ticker(ticker_raw)
     if not ticker:
         return None
