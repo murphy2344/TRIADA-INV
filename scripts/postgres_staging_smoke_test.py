@@ -23,8 +23,15 @@ async def main():
     url = os.getenv("DATABASE_URL", "").strip()
     if not url.startswith(("postgres://", "postgresql://")):
         raise SystemExit("FAIL: DATABASE_URL must point to the PostgreSQL staging database.")
-    if "triada_inv_postgres_staging" not in url and "dpg-dbfpnjvavr4c73fj05ug-a" not in url:
-        raise SystemExit("FAIL: refusing to run unless DATABASE_URL clearly identifies the TRIADA staging database.")
+    if not any(marker in url for marker in (
+        "triada_inv_staging",
+        "triada_inv_postgres_staging",
+        "dpg-dbfpnjvavr4c73fj05ug-a",
+    )):
+        raise SystemExit(
+            "FAIL: refusing to run unless DATABASE_URL clearly identifies a dedicated "
+            "TRIADA staging database (triada_inv_staging)."
+        )
 
     print("1/6 PostgreSQL URL detected; initializing schema...")
     await storage.init_db()
