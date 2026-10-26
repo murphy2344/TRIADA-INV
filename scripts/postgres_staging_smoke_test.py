@@ -47,7 +47,7 @@ async def main():
             raise RuntimeError("published_news recent-title query failed")
 
         print("4/6 Testing stats and metadata upsert...")
-        await storage.increment_stats()
+        # Read stats without mutating the real current-day counters.
         stats = await storage.get_today_stats()
         if not isinstance(stats, dict) or "posts" not in stats:
             raise RuntimeError("bot_stats read failed")
