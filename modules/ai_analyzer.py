@@ -167,7 +167,15 @@ def _analyze_with_gemini(prompt: str, category: str) -> dict | None:
             )
             return result
         except Exception as exc:
-            logger.warning("Gemini error (%s): %s", model, exc)
+            response = getattr(exc, "response", None)
+            if response is not None:
+                body = (getattr(response, "text", "") or "")[:500].replace("\\n", " ")
+                logger.warning(
+                    "Gemini error (%s): HTTP %s; %s; response=%s",
+                    model, getattr(response, "status_code", "?"), exc, body,
+                )
+            else:
+                logger.warning("Gemini error (%s): %s", model, exc)
     return None
 
 
@@ -217,7 +225,7 @@ def analyze(raw_text: str, category: str = "BREAKING") -> dict | None:
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.3,
-                max_tokens=1400,
+                max_tokens=2200,
                 response_format={"type": "json_object"},
             )
             result = _normalize_result(
@@ -229,13 +237,18 @@ def analyze(raw_text: str, category: str = "BREAKING") -> dict | None:
             )
             return result
         except Exception as exc:
-            if model == GROQ_MODEL and (
-                "429" in str(exc) or "rate_limit" in str(exc).lower()
-            ):
+            error_text = str(exc)
+            if "429" in error_text or "rate_limit" in error_text.lower():
+                # Rate limits commonly apply to the whole account/model family.
+                # Cycling through several models just burns requests without
+                # fixing a daily quota; stop this analysis and retry later.
                 _PRIMARY_RATE_LIMITED_UNTIL = time.monotonic() + 45 * 60
-                logger.warning("Groq primary model rate-limited; using fallback")
-            else:
-                logger.error("Groq error (%s): %s", model, exc)
+                logger.warning(
+                    "Groq rate limit on %s; stopping model retries for this item",
+                    model,
+                )
+                break
+            logger.error("Groq error (%s): %s", model, exc)
     return None
 
 
