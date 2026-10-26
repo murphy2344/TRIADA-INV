@@ -32,17 +32,17 @@ def _translate(sql: str, params: tuple[Any, ...] | None) -> tuple[str, tuple[Any
         query = query.rstrip().rstrip(";") + " ON CONFLICT DO NOTHING"
     # Translate the SQLite datetime expressions used by modules/storage.py.
     # Do this before converting qmark parameters to psycopg placeholders.
-    query = re.sub(r"datetime\\(\\s*'now'\\s*\\)", "CURRENT_TIMESTAMP", query, flags=re.I)
+    query = re.sub(r"datetime\(\s*'now'\s*\)", "CURRENT_TIMESTAMP", query, flags=re.I)
     query = re.sub(
-        r"datetime\\(\\s*'now'\\s*,\\s*\\?\\s*\\|\\|\\s*' hours'\\s*\\)",
+        r"datetime\(\s*'now'\s*,\s*\?\s*\|\|\s*' hours'\s*\)",
         "(CURRENT_TIMESTAMP + (%s::text || ' hours')::interval)", query, flags=re.I
     )
     query = re.sub(
-        r"datetime\\(\\s*'now'\\s*,\\s*\\?\\s*\\|\\|\\s*' days'\\s*\\)",
+        r"datetime\(\s*'now'\s*,\s*\?\s*\|\|\s*' days'\s*\)",
         "(CURRENT_TIMESTAMP + (%s::text || ' days')::interval)", query, flags=re.I
     )
     query = re.sub(
-        r"datetime\\(\\s*posted_at\\s*,\\s*'\\+'\\s*\\|\\|\\s*COALESCE\\(horizon_hours,\\s*24\\)\\s*\\|\\|\\s*' hours'\\s*\\)",
+        r"datetime\(\s*posted_at\s*,\s*'\+'\s*\|\|\s*COALESCE\(horizon_hours,\s*24\)\s*\|\|\s*' hours'\s*\)",
         "(posted_at + COALESCE(horizon_hours, 24) * INTERVAL '1 hour')", query, flags=re.I
     )
     # Replace remaining qmark placeholders after rewriting datetime expressions.
