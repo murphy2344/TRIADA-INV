@@ -250,9 +250,8 @@ def analyze(raw_text: str, category: str = "BREAKING") -> dict | None:
         except Exception as exc:
             error_text = str(exc)
             if "429" in error_text or "rate_limit" in error_text.lower():
-                # Rate limits commonly apply to the whole account/model family.
-                # Cycling through several models just burns requests without
-                # fixing a daily quota; stop this analysis and retry later.
+                # Quotas are model-specific in many plans. Mark the primary
+                # as cooling down, then try the next configured production model.
                 _PRIMARY_RATE_LIMITED_UNTIL = time.monotonic() + 45 * 60
                 logger.warning(
                     "Groq rate limit on %s; trying the next configured model",
