@@ -833,8 +833,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
           chat_id=user.id,
           text=(
               "📊 <b>Трек-рекорд за 7 дней</b>\n\n"
-              f"Сигналов: <b>{stats['total']}</b>\n"
-              f"Точность: <b>{stats['accuracy_pct'] or 'н/д'}%</b>\n"
+              f"Записано сигналов: <b>{stats.get('recorded', stats['total'])}</b>\n"
+              f"Ожидают проверки: <b>{stats.get('pending', 0)}</b>\n"
+              f"Проверено: <b>{stats['total']}</b>\n"
+              f"Точность: <b>{stats['accuracy_pct'] if stats['accuracy_pct'] is not None else 'н/д'}%</b>\n"
               f"Средний PnL: <b>{stats.get('avg_pnl', 0):+.2f}%</b>"
           ),
           parse_mode="HTML",
