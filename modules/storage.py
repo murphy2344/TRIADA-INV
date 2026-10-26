@@ -1,4 +1,4 @@
-import aiosqlite
+from modules import db_compat as aiosqlite
 import logging
 from config.config import DB_PATH
 import os
