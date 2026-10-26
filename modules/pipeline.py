@@ -87,6 +87,11 @@ async def _track_recommendation(analysis: dict):
         return
     price = await asyncio.to_thread(charting.get_current_price, ticker)
     if price is None:
+        logger.warning(
+            "Track Record: cannot save %s signal because no entry price is available; "
+            "check Yahoo Finance/provider errors",
+            ticker,
+        )
         return
     await storage.save_recommendation(
         ticker,
@@ -632,6 +637,11 @@ async def check_recommendations(bot=None, admin_id: str = None):
             charting.get_price_metrics, rec["ticker"], rec["price_at_post"]
         )
         if not metrics:
+            logger.warning(
+                "Track Record: signal id=%s ticker=%s remains pending; "
+                "price metrics are unavailable",
+                rec.get("id"), rec.get("ticker"),
+            )
             continue
         price_after = metrics["price_after"]
         went_up = price_after > rec["price_at_post"]
