@@ -21,6 +21,10 @@ logging.basicConfig(
   level=logging.INFO,
   format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
+# HTTPX logs full request URLs at INFO. Telegram Bot API URLs contain the bot
+# token, so keep transport request logs above INFO to avoid credential leakage.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 MSK = pytz.timezone("Europe/Moscow")
 
@@ -833,8 +837,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
           chat_id=user.id,
           text=(
               "📊 <b>Трек-рекорд за 7 дней</b>\n\n"
-              f"Сигналов: <b>{stats['total']}</b>\n"
-              f"Точность: <b>{stats['accuracy_pct'] or 'н/д'}%</b>\n"
+              f"Записано сигналов: <b>{stats.get('recorded', stats['total'])}</b>\n"
+              f"Ожидают проверки: <b>{stats.get('pending', 0)}</b>\n"
+              f"Проверено: <b>{stats['total']}</b>\n"
+              f"Точность: <b>{stats['accuracy_pct'] if stats['accuracy_pct'] is not None else 'н/д'}%</b>\n"
               f"Средний PnL: <b>{stats.get('avg_pnl', 0):+.2f}%</b>"
           ),
           parse_mode="HTML",

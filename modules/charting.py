@@ -178,7 +178,7 @@ async def _tradingview_chart_async(ticker: str) -> bytes | None:
                 logger.info("TradingView screenshot OK for %s", ticker)
             return image
     except Exception as exc:
-        logger.warning("TradingView screenshot error for %s", ticker, exc)
+        logger.warning("TradingView screenshot error for %s: %s", ticker, exc)
         return None
 
 

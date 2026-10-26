@@ -268,11 +268,21 @@ async def get_accuracy_stats(days: int = 7) -> dict:
             total = row[0] or 0
             correct = row[1] or 0
             accuracy = round(correct / total * 100) if total else None
+            async with db.execute(
+                "SELECT COUNT(*), "
+                "SUM(CASE WHEN checked = 0 THEN 1 ELSE 0 END) "
+                "FROM recommendations WHERE posted_at >= datetime('now', ? || ' days')",
+                (f"-{days}",),
+            ) as all_cursor:
+                all_row = await all_cursor.fetchone()
             return {
+                # total remains the count of checked records for backward compatibility.
                 "total": total,
                 "correct": correct,
                 "accuracy_pct": accuracy,
                 "avg_pnl": round(row[2], 2) if row[2] is not None else 0.0,
+                "recorded": all_row[0] or 0,
+                "pending": all_row[1] or 0,
             }
 
 
