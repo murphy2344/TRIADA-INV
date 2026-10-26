@@ -380,7 +380,7 @@ async def add_to_portfolio(user_id: int, ticker: str, quantity: float, avg_price
             """INSERT INTO user_portfolios (user_id, ticker, quantity, avg_price)
                VALUES (?, ?, ?, ?)
                ON CONFLICT(user_id, ticker) DO UPDATE SET
-               quantity = quantity + excluded.quantity,
+               quantity = user_portfolios.quantity + excluded.quantity,
                avg_price = ((user_portfolios.quantity * user_portfolios.avg_price +
                             excluded.quantity * excluded.avg_price) /
                            (user_portfolios.quantity + excluded.quantity))""",
