@@ -21,6 +21,10 @@ logging.basicConfig(
   level=logging.INFO,
   format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
+# HTTPX logs full request URLs at INFO. Telegram Bot API URLs contain the bot
+# token, so keep transport request logs above INFO to avoid credential leakage.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 MSK = pytz.timezone("Europe/Moscow")
 
