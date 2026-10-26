@@ -14,7 +14,11 @@ async def init_db():
             raise RuntimeError(f"PostgreSQL migration file not found: {migration}")
         async with db_compat.connect(DB_PATH) as db:
             sql = migration.read_text(encoding="utf-8")
-            await db.execute(sql)
+            sql = "\n".join(line for line in sql.splitlines() if not line.lstrip().startswith("--"))
+            for statement in sql.split(";"):
+                statement = statement.strip()
+                if statement:
+                    await db.execute(statement)
             # PostgreSQL migrations may be rerun safely because tables use IF NOT EXISTS.
         logger.info("PostgreSQL database initialized")
         return
