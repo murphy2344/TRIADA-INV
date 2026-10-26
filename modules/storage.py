@@ -146,7 +146,7 @@ async def increment_stats():
         try:
             await db.execute(
                 "INSERT INTO bot_stats (date, posts_count) VALUES (?, 1) "
-                "ON CONFLICT(date) DO UPDATE SET posts_count = posts_count + 1",
+                "ON CONFLICT(date) DO UPDATE SET posts_count = bot_stats.posts_count + 1",
                 (today,)
             )
             await db.commit()
