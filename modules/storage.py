@@ -1,4 +1,4 @@
-import aiosqlite
+from modules import db_compat
 import logging
 from config.config import DB_PATH
 import os
@@ -6,8 +6,20 @@ import os
 logger = logging.getLogger(__name__)
 
 async def init_db():
+    if db_compat.is_postgres():
+        # The migration is intentionally explicit and version-controlled.
+        from pathlib import Path
+        migration = Path(__file__).resolve().parent.parent / "migrations" / "001_initial_postgres.sql"
+        if not migration.exists():
+            raise RuntimeError(f"PostgreSQL migration file not found: {migration}")
+        async with db_compat.connect(DB_PATH) as db:
+            sql = migration.read_text(encoding="utf-8")
+            await db.execute(sql)
+            # PostgreSQL migrations may be rerun safely because tables use IF NOT EXISTS.
+        logger.info("PostgreSQL database initialized")
+        return
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         await db.execute("""
             CREATE TABLE IF NOT EXISTS published_news (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
