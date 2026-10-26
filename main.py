@@ -1078,7 +1078,7 @@ async def main():
 
       try:
           if application.updater:
-              await application.updater.start_polling(drop_pending_updates=True)
+              await application.updater.start_polling(drop_pending_updates=False)
           logger.info("Bot polling started — TRIADA INVESTING is live")
           while True:
               await asyncio.sleep(1)
