@@ -137,16 +137,20 @@ def main():
                             "EXISTS(SELECT 1 FROM " + table + "))",
                             (table,),
                         )
+                    # Validate while the transaction is still open so a mismatch
+                    # can be rolled back instead of leaving a partial/invalid target.
+                    for table, expected in counts.items():
+                        cur.execute(sql.SQL("SELECT COUNT(*) FROM {}").format(sql.Identifier(table)))
+                        actual = cur.fetchone()[0]
+                        if actual != expected:
+                            raise RuntimeError(
+                                f"Validation failed for {table}: expected {expected}, got {actual}"
+                            )
                     remote.commit()
                 except Exception:
                     remote.rollback()
                     raise
 
-                for table, expected in counts.items():
-                    cur.execute(sql.SQL("SELECT COUNT(*) FROM {}").format(sql.Identifier(table)))
-                    actual = cur.fetchone()[0]
-                    if actual != expected:
-                        raise RuntimeError(f"Validation failed for {table}: expected {expected}, got {actual}")
                 print("Migration committed and row counts verified:")
                 for table, count in counts.items():
                     print(f"  {table}: {count}")
