@@ -112,9 +112,15 @@ async def release_lock(name: str, owner: str) -> None:
     """Release a lock only if it is still owned by this process."""
     if not USE_REDIS:
         return
-    current = await _redis(["GET", f"{PREFIX}:lock:{name}"])
-    if current == owner:
-        await _redis(["DEL", f"{PREFIX}:lock:{name}"])
+    # Compare and delete atomically so an expired/reacquired lock owned by
+    # another process can never be removed by this process.
+    await _redis([
+        "EVAL",
+        "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+        "1",
+        f"{PREFIX}:lock:{name}",
+        owner,
+    ])
 
 
 # ── Public interface ───────────────────────────────────────────────────────────
