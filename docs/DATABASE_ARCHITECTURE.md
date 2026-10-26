@@ -2,18 +2,27 @@
 
 ## Intended production topology
 
-- PostgreSQL is the source of truth for portfolios, user alerts/watchlists, statistics, and recommendation/track-record history.
+- PostgreSQL is intended to be the source of truth for portfolios, user alerts/watchlists, statistics, and recommendation/track-record history.
 - Upstash Redis remains responsible for fast deduplication, distributed polling locks, and expiring coordination keys.
-- SQLite is a local export/restore artifact, not a second independently writable primary database.
+- SQLite remains the default storage backend unless `DATABASE_URL` is explicitly configured. Do not configure that variable in production until the rollout checks below are complete.
+- A SQLite file on Render's ephemeral filesystem is not durable storage or a verified backup.
+
+## Current implementation and validation
+
+- `modules/db_compat.py` implements the subset of the async SQLite API used by `modules/storage.py`, with PostgreSQL selected by `DATABASE_URL`.
+- GitHub Actions starts a disposable PostgreSQL 16 service and runs adapter and application-storage integration tests against it.
+- The integration tests validate basic schema creation, read/write operations, duplicate suppression, portfolio upserts, statistics, metadata, and recommendation storage.
+- These tests do not prove that the Render staging database is reachable, that live SQLite data has been migrated, or that a production backup can be restored.
 
 ## Safe rollout
 
-1. Create PostgreSQL in the same region as the Render app and store its connection string in Render's secret environment settings as `DATABASE_URL`.
-2. Keep the application on its existing SQLite path until the PostgreSQL storage adapter is implemented and tested. Do not set `DATABASE_URL` alone as a switch.
-3. Take a verified SQLite file copy, run the migration script in dry-run mode, then use `--apply` only against an empty PostgreSQL target.
-4. Verify row counts and sample records, then test the adapter against a disposable database and run offline tests.
-5. Enable PostgreSQL reads/writes behind an explicit storage mode only after those checks. Keep rollback possible and never silently dual-write without reconciliation.
-6. Add scheduled PostgreSQL exports to a separate durable backup location, monitor last-success time, and periodically test restoring into a fresh database. A SQLite file on an ephemeral Render filesystem is not a durable backup by itself.
+1. Use a trusted cloud environment to connect to the Render staging database without opening PostgreSQL to all IPs.
+2. Obtain a consistent copy of the current SQLite database from the production service. Do not assume the file can be accessed after a redeploy or restart.
+3. Run `scripts/migrate_sqlite_to_postgres.py` in dry-run mode against the copy and staging database.
+4. Confirm the target is empty, review row counts, run `--apply` only against the staging target, then validate counts and representative records.
+5. Exercise the full storage API against the migrated staging data and test a backup/restore into a fresh database.
+6. Only after all checks pass, plan a controlled production cutover with a verified backup and rollback path. Avoid silent dual writes without reconciliation.
+7. Set `DATABASE_URL` only as part of that planned cutover. Keep the application and database in the same region where possible.
 
 ## Migration utility
 
@@ -33,6 +42,8 @@ python scripts/migrate_sqlite_to_postgres.py --sqlite data/bot.db --apply
 
 Never put a database URL or password in source control or logs.
 
-## Current limitations
+## Current blockers
 
-The migration utility does not switch the running application to PostgreSQL. That requires a separate storage-layer refactor because current application functions issue SQLite-specific SQL directly. Do not treat a successful one-off data migration as proof that production is using PostgreSQL.
+- The Render staging database's IP allowlist is empty, and the hosted query connection cannot reach it. Do not add `0.0.0.0/0`; use a trusted environment or a temporary cloud test process instead.
+- The current production SQLite file has not been copied and migrated to staging as part of this work.
+- A successful CI run is not proof of production readiness. Do not switch production to PostgreSQL until staging connectivity, data migration, and backup/restore checks pass.
