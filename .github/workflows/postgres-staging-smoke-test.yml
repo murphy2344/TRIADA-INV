@@ -1,0 +1,108 @@
+name: PostgreSQL staging smoke test
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch to test"
+        required: true
+        default: "fix/postgres-storage-migration"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out migration branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Validate required secrets
+        env:
+          DATABASE_URL: ${{ secrets.TRIADA_STAGING_DATABASE_URL }}
+          RENDER_API_KEY: ${{ secrets.TRIADA_RENDER_API_KEY }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::Repository secret TRIADA_STAGING_DATABASE_URL is missing."
+            exit 1
+          fi
+          if [ -z "$RENDER_API_KEY" ]; then
+            echo "::error::Repository secret TRIADA_RENDER_API_KEY is missing."
+            exit 1
+          fi
+          case "$DATABASE_URL" in
+            postgres://*|postgresql://*) ;;
+            *) echo "::error::Secret is not a PostgreSQL URL."; exit 1 ;;
+          esac
+          case "$DATABASE_URL" in
+            *triada_inv_postgres_staging*|*dpg-dbfpnjvavr4c73fj05ug-a*) ;;
+            *) echo "::error::Secret does not identify the expected staging database."; exit 1 ;;
+          esac
+          echo "Required secrets and staging database identity checks passed."
+
+      - name: Temporarily allow this GitHub runner to reach staging
+        id: allowlist
+        env:
+          RENDER_API_KEY: ${{ secrets.TRIADA_RENDER_API_KEY }}
+          POSTGRES_ID: dpg-dbfpnjvavr4c73fj05ug-a
+        run: |
+          set -euo pipefail
+          response="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Accept: application/json" \
+            "https://api.render.com/v1/postgres/$POSTGRES_ID")"
+          original_allowlist="$(printf '%s' "$response" | jq -c '.ipAllowList')"
+          if [ -z "$original_allowlist" ] || [ "$original_allowlist" = "null" ]; then
+            echo "::error::Could not read the current PostgreSQL allowlist; refusing to modify it."
+            exit 1
+          fi
+          runner_ip="$(curl --fail --silent --show-error https://api.ipify.org)"
+          if ! [[ "$runner_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+            echo "::error::Could not determine GitHub runner IPv4 address."
+            exit 1
+          fi
+          echo "original_allowlist=$original_allowlist" >> "$GITHUB_OUTPUT"
+          updated_allowlist="$(jq -cn --argjson original "$original_allowlist" --arg cidr "$runner_ip/32" \
+            '$original + [{"cidrBlock":$cidr,"description":"temporary GitHub Actions smoke test"}]')"
+          payload="$(jq -cn --argjson allowlist "$updated_allowlist" '{ipAllowList:$allowlist}')"
+          curl --fail --silent --show-error -X PATCH \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$payload" \
+            "https://api.render.com/v1/postgres/$POSTGRES_ID" >/dev/null
+          echo "Temporary /32 allowlist entry added for this workflow run."
+
+      - name: Run staging smoke test
+        env:
+          DATABASE_URL: ${{ secrets.TRIADA_STAGING_DATABASE_URL }}
+        run: python scripts/postgres_staging_smoke_test.py
+
+      - name: Restore original PostgreSQL allowlist
+        if: ${{ always() && steps.allowlist.outputs.original_allowlist != '' }}
+        env:
+          RENDER_API_KEY: ${{ secrets.TRIADA_RENDER_API_KEY }}
+          POSTGRES_ID: dpg-dbfpnjvavr4c73fj05ug-a
+          ORIGINAL_ALLOWLIST: ${{ steps.allowlist.outputs.original_allowlist }}
+        run: |
+          set -euo pipefail
+          payload="$(jq -cn --argjson allowlist "$ORIGINAL_ALLOWLIST" '{ipAllowList:$allowlist}')"
+          curl --fail --silent --show-error -X PATCH \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$payload" \
+            "https://api.render.com/v1/postgres/$POSTGRES_ID" >/dev/null
+          echo "Original PostgreSQL allowlist restored."
