@@ -30,13 +30,22 @@ def _translate(sql: str, params: tuple[Any, ...] | None) -> tuple[str, tuple[Any
     if query.upper().startswith("INSERT OR IGNORE INTO"):
         query = re.sub(r"^INSERT OR IGNORE INTO", "INSERT INTO", query, flags=re.I)
         query = query.rstrip().rstrip(";") + " ON CONFLICT DO NOTHING"
-    query = query.replace("datetime('now', ? || ' hours')", "(CURRENT_TIMESTAMP + (?::text || ' hours')::interval)")
-    query = query.replace("datetime('now', ? || ' days')", "(CURRENT_TIMESTAMP + (?::text || ' days')::interval)")
-    query = query.replace(
-        "datetime(posted_at, '+' || COALESCE(horizon_hours, 24) || ' hours')",
-        "(posted_at + COALESCE(horizon_hours, 24) * INTERVAL '1 hour')"
+    # Translate the SQLite datetime expressions used by modules/storage.py.
+    # Do this before converting qmark parameters to psycopg placeholders.
+    query = re.sub(r"datetime\\(\\s*'now'\\s*\\)", "CURRENT_TIMESTAMP", query, flags=re.I)
+    query = re.sub(
+        r"datetime\\(\\s*'now'\\s*,\\s*\\?\\s*\\|\\|\\s*' hours'\\s*\\)",
+        "(CURRENT_TIMESTAMP + (%s::text || ' hours')::interval)", query, flags=re.I
     )
-    # Replace qmark placeholders after rewriting SQL expressions.
+    query = re.sub(
+        r"datetime\\(\\s*'now'\\s*,\\s*\\?\\s*\\|\\|\\s*' days'\\s*\\)",
+        "(CURRENT_TIMESTAMP + (%s::text || ' days')::interval)", query, flags=re.I
+    )
+    query = re.sub(
+        r"datetime\\(\\s*posted_at\\s*,\\s*'\\+'\\s*\\|\\|\\s*COALESCE\\(horizon_hours,\\s*24\\)\\s*\\|\\|\\s*' hours'\\s*\\)",
+        "(posted_at + COALESCE(horizon_hours, 24) * INTERVAL '1 hour')", query, flags=re.I
+    )
+    # Replace remaining qmark placeholders after rewriting datetime expressions.
     query = query.replace("?", "%s")
     return query, params
 
