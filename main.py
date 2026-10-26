@@ -988,6 +988,45 @@ async def main():
       await application.initialize()
       await application.start()
 
+      polling_owner = f"{os.getpid()}-{uuid.uuid4().hex}"
+      polling_lock_name = "telegram_polling"
+      polling_lock_acquired = False
+      polling_renew_task = None
+
+      if dedup.USE_REDIS:
+          # Render can overlap old/new processes during a deploy. Wait for
+          # the old process to release the lock instead of causing Telegram's
+          # 409 Conflict by starting a second getUpdates request.
+          for _ in range(60):
+              polling_lock_acquired = await dedup.acquire_lock(
+                  polling_lock_name, polling_owner, ttl=120
+              )
+              if polling_lock_acquired:
+                  break
+              logger.warning("Another TRIADA process owns Telegram polling; waiting 2s")
+              await asyncio.sleep(2)
+
+          if not polling_lock_acquired:
+              raise RuntimeError(
+                  "Telegram polling lock is busy for 120s; refusing to start a second getUpdates loop"
+              )
+
+          async def renew_polling_lock():
+              while True:
+                  await asyncio.sleep(30)
+                  if not await dedup.renew_lock(
+                      polling_lock_name, polling_owner, ttl=120
+                  ):
+                      logger.error("Telegram polling lock was lost; stopping this process")
+                      return
+
+          polling_renew_task = asyncio.create_task(renew_polling_lock())
+      else:
+          logger.warning(
+              "Redis is unavailable: Telegram polling cannot be protected from "
+              "a second Render process"
+          )
+
       # Setup bot menu commands (different for admin and users)
       await bot_commands.setup_bot_commands(application.bot, admin_id)
 
@@ -1035,45 +1074,6 @@ async def main():
           )
           await notify_admin(application.bot, admin_id, msg)
           logger.info(f"Startup diagnostic sent. SQLite={sqlite_ok}, Redis={redis_ok}")
-
-      polling_owner = f"{os.getpid()}-{uuid.uuid4().hex}"
-      polling_lock_name = "telegram_polling"
-      polling_lock_acquired = False
-      polling_renew_task = None
-
-      if dedup.USE_REDIS:
-          # Render can overlap old/new processes during a deploy. Wait for
-          # the old process to release the lock instead of causing Telegram's
-          # 409 Conflict by starting a second getUpdates request.
-          for _ in range(60):
-              polling_lock_acquired = await dedup.acquire_lock(
-                  polling_lock_name, polling_owner, ttl=120
-              )
-              if polling_lock_acquired:
-                  break
-              logger.warning("Another TRIADA process owns Telegram polling; waiting 2s")
-              await asyncio.sleep(2)
-
-          if not polling_lock_acquired:
-              raise RuntimeError(
-                  "Telegram polling lock is busy for 120s; refusing to start a second getUpdates loop"
-              )
-
-          async def renew_polling_lock():
-              while True:
-                  await asyncio.sleep(30)
-                  if not await dedup.renew_lock(
-                      polling_lock_name, polling_owner, ttl=120
-                  ):
-                      logger.error("Telegram polling lock was lost; stopping this process")
-                      return
-
-          polling_renew_task = asyncio.create_task(renew_polling_lock())
-      else:
-          logger.warning(
-              "Redis is unavailable: Telegram polling cannot be protected from "
-              "a second Render process"
-          )
 
       # Start scheduled publishing only after this process owns polling.
       # During Render's overlapping deploy window, a waiting instance must not
