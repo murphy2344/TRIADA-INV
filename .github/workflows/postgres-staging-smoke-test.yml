@@ -1,0 +1,55 @@
+name: PostgreSQL staging smoke test
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch to test"
+        required: true
+        default: "fix/postgres-storage-migration"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out migration branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Validate staging URL secret exists
+        env:
+          DATABASE_URL: ${{ secrets.TRIADA_STAGING_DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::Repository secret TRIADA_STAGING_DATABASE_URL is missing."
+            exit 1
+          fi
+          case "$DATABASE_URL" in
+            postgres://*|postgresql://*) ;;
+            *) echo "::error::Secret is not a PostgreSQL URL."; exit 1 ;;
+          esac
+          case "$DATABASE_URL" in
+            *triada_inv_postgres_staging*|*dpg-dbfpnjvavr4c73fj05ug-a*) ;;
+            *) echo "::error::Secret does not identify the expected staging database."; exit 1 ;;
+          esac
+          echo "Staging URL format and database identity checks passed."
+
+      - name: Run staging smoke test
+        env:
+          DATABASE_URL: ${{ secrets.TRIADA_STAGING_DATABASE_URL }}
+        run: python scripts/postgres_staging_smoke_test.py
