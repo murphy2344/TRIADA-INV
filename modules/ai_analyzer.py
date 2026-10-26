@@ -127,7 +127,15 @@ def _normalize_result(result: dict, category: str) -> dict:
 
 
 def _gemini_models() -> list[str]:
-    return list(dict.fromkeys([GEMINI_MODEL, GEMINI_FALLBACK_MODEL]))
+    # Gemini 2.5 models were retired by Google in October 2026. Prefer current
+    # models even if Render still has the old model IDs in environment vars.
+    candidates = [
+        "gemini-3.8-flash",
+        "gemini-3.5-flash-lite",
+        GEMINI_MODEL,
+        GEMINI_FALLBACK_MODEL,
+    ]
+    return list(dict.fromkeys(model.strip() for model in candidates if model and model.strip()))
 
 
 def _analyze_with_gemini(prompt: str, category: str) -> dict | None:
@@ -206,11 +214,14 @@ def analyze(raw_text: str, category: str = "BREAKING") -> dict | None:
     models = list(dict.fromkeys([
         GROQ_MODEL,
         GROQ_FALLBACK_MODEL,
+        "llama-3.3-70b-versatile",
         "openai/gpt-oss-120b",
         "openai/gpt-oss-20b",
     ]))
     if time.monotonic() < _PRIMARY_RATE_LIMITED_UNTIL:
+        # Prefer a different production model while the primary quota cools down.
         models = list(dict.fromkeys([
+            "llama-3.3-70b-versatile",
             GROQ_FALLBACK_MODEL,
             "openai/gpt-oss-20b",
             "openai/gpt-oss-120b",
@@ -239,15 +250,14 @@ def analyze(raw_text: str, category: str = "BREAKING") -> dict | None:
         except Exception as exc:
             error_text = str(exc)
             if "429" in error_text or "rate_limit" in error_text.lower():
-                # Rate limits commonly apply to the whole account/model family.
-                # Cycling through several models just burns requests without
-                # fixing a daily quota; stop this analysis and retry later.
+                # Quotas are model-specific in many plans. Mark the primary
+                # as cooling down, then try the next configured production model.
                 _PRIMARY_RATE_LIMITED_UNTIL = time.monotonic() + 45 * 60
                 logger.warning(
-                    "Groq rate limit on %s; stopping model retries for this item",
+                    "Groq rate limit on %s; trying the next configured model",
                     model,
                 )
-                break
+                continue
             logger.error("Groq error (%s): %s", model, exc)
     return None
 

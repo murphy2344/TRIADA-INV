@@ -1,6 +1,5 @@
 import io
 import time
-import asyncio
 import logging
 import requests
 import matplotlib
@@ -158,38 +157,6 @@ def _chart_img(ticker: str) -> bytes | None:
     return None
 
 
-async def _tradingview_chart_async(ticker: str) -> bytes | None:
-    """Capture a TradingView chart with Playwright when a browser is available."""
-    try:
-        from playwright.async_api import async_playwright
-    except ImportError:
-        return None
-
-    try:
-        async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(headless=True)
-            page = await browser.new_page(viewport={"width": 1280, "height": 720})
-            url = f"https://www.tradingview.com/chart/?symbol={ticker}&interval=1D"
-            await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-            await page.wait_for_timeout(4_000)
-            image = await page.screenshot(type="png")
-            await browser.close()
-            if image:
-                logger.info("TradingView screenshot OK for %s", ticker)
-            return image
-    except Exception as exc:
-        logger.warning("TradingView screenshot error for %s: %s", ticker, exc)
-        return None
-
-
-def _tradingview_chart(ticker: str) -> bytes | None:
-    try:
-        return asyncio.run(_tradingview_chart_async(ticker))
-    except Exception as exc:
-        logger.warning("TradingView event-loop error for %s: %s", ticker, exc)
-        return None
-
-
 def get_current_price(ticker_raw: str) -> float | None:
     """Текущая цена актива — для трек-рекорда рекомендаций."""
     ticker = resolve_ticker(ticker_raw)
@@ -265,21 +232,18 @@ def build_chart(ticker_raw: str) -> bytes | None:
     if not ticker:
         return None
 
-    # 1. TradingView browser capture.
-    result = _tradingview_chart(ticker)
-    if result:
-        return result
-
-    # 2. Chart-IMG API, if its optional key is configured.
+    # 1. Chart-IMG API, if its optional key is already configured.
     result = _chart_img(ticker)
     if result:
         return result
 
-    # 3. Finviz — проверяет размер и отбрасывает заглушки.
+    # 2. Finviz — validates image size and rejects placeholder charts.
     result = _finviz_chart(ticker)
     if result:
         return result
 
-    # 4. Fallback: yfinance + matplotlib.
-    logger.info(f"Finviz failed or returned placeholder for {ticker}, using yfinance fallback")
+    # 3. Lightweight fallback: yfinance + matplotlib. Avoid launching Chromium
+    # on the 512 MiB Render instance; Playwright's browser was missing and
+    # could add substantial memory pressure.
+    logger.info("Finviz failed or returned placeholder for %s; using yfinance fallback", ticker)
     return _yfinance_chart(ticker)
