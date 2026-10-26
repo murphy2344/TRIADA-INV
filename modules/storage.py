@@ -1,4 +1,4 @@
-import aiosqlite
+from modules import db_compat as aiosqlite
 import logging
 from config.config import DB_PATH
 import os
@@ -146,7 +146,7 @@ async def increment_stats():
         try:
             await db.execute(
                 "INSERT INTO bot_stats (date, posts_count) VALUES (?, 1) "
-                "ON CONFLICT(date) DO UPDATE SET posts_count = posts_count + 1",
+                "ON CONFLICT(date) DO UPDATE SET posts_count = bot_stats.posts_count + 1",
                 (today,)
             )
             await db.commit()
@@ -380,7 +380,7 @@ async def add_to_portfolio(user_id: int, ticker: str, quantity: float, avg_price
             """INSERT INTO user_portfolios (user_id, ticker, quantity, avg_price)
                VALUES (?, ?, ?, ?)
                ON CONFLICT(user_id, ticker) DO UPDATE SET
-               quantity = quantity + excluded.quantity,
+               quantity = user_portfolios.quantity + excluded.quantity,
                avg_price = ((user_portfolios.quantity * user_portfolios.avg_price +
                             excluded.quantity * excluded.avg_price) /
                            (user_portfolios.quantity + excluded.quantity))""",
