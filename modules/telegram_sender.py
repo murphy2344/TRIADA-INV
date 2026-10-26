@@ -108,19 +108,36 @@ async def send_photo_text_detailed(
     kwargs = {"message_thread_id": message_thread_id} if message_thread_id is not None else {}
 
     async def send_once():
+        is_photo = (
+            isinstance(media, bytes)
+            or (isinstance(media, str) and media.startswith("http"))
+            or (isinstance(media, str) and media.endswith((".jpg", ".jpeg", ".png")))
+        )
+
+        # Telegram limits photo captions to 1024 characters, while regular
+        # messages allow up to 4096. Keep long BREAKING analysis readable:
+        # attach controls to the photo and send the full HTML text separately.
+        split_caption = is_photo and len(caption) > 1024
+        photo_caption = "" if split_caption else caption
+
         if isinstance(media, bytes):
-            await bot.send_photo(chat_id=cid, photo=media, caption=caption,
+            await bot.send_photo(chat_id=cid, photo=media, caption=photo_caption,
                                  parse_mode=ParseMode.HTML, reply_markup=reply_markup, **kwargs)
         elif isinstance(media, str) and media.startswith("http"):
-            await bot.send_photo(chat_id=cid, photo=media, caption=caption,
+            await bot.send_photo(chat_id=cid, photo=media, caption=photo_caption,
                                  parse_mode=ParseMode.HTML, reply_markup=reply_markup, **kwargs)
         elif isinstance(media, str) and media.endswith((".jpg", ".jpeg", ".png")):
             with open(media, "rb") as f:
-                await bot.send_photo(chat_id=cid, photo=f, caption=caption,
+                await bot.send_photo(chat_id=cid, photo=f, caption=photo_caption,
                                      parse_mode=ParseMode.HTML, reply_markup=reply_markup, **kwargs)
         else:
             await bot.send_message(chat_id=cid, text=caption, parse_mode=ParseMode.HTML,
                                    reply_markup=reply_markup, **kwargs)
+
+        if split_caption:
+            await bot.send_message(
+                chat_id=cid, text=caption, parse_mode=ParseMode.HTML, **kwargs,
+            )
 
     try:
         await send_once()
