@@ -992,10 +992,6 @@ async def main():
       forum_topics.set_topic_ids(topic_ids)
       logger.info("Forum topics initialized: %s", topic_ids)
 
-      scheduler = build_scheduler(application.bot, admin_id)
-      scheduler.start()
-      logger.info("Scheduler started with all jobs (misfire_grace_time=600s)")
-
       if admin_id:
           sqlite_ok = False
           try:
@@ -1075,6 +1071,13 @@ async def main():
               "Redis is unavailable: Telegram polling cannot be protected from "
               "a second Render process"
           )
+
+      # Start scheduled publishing only after this process owns polling.
+      # During Render's overlapping deploy window, a waiting instance must not
+      # run scheduled jobs alongside the currently active instance.
+      scheduler = build_scheduler(application.bot, admin_id)
+      scheduler.start()
+      logger.info("Scheduler started with all jobs (misfire_grace_time=600s)")
 
       try:
           if application.updater:
