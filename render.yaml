@@ -2,7 +2,8 @@ services:
   - type: web
     name: triada-investing-bot
     runtime: python
-    buildCommand: pip install -r requirements.txt && playwright install --with-deps chromium
+    # Charts now use API/Finviz/yfinance + matplotlib; Chromium is not required.
+    buildCommand: pip install -r requirements.txt
     startCommand: python main.py
     plan: free
     envVars:
@@ -31,9 +32,9 @@ services:
       - key: GOOGLE_API_KEY
         sync: false
       - key: GEMINI_MODEL
-        value: gemini-2.5-flash
+        value: gemini-3.8-flash
       - key: GEMINI_FALLBACK_MODEL
-        value: gemini-2.5-flash-lite
+        value: gemini-3.5-flash-lite
       - key: GROQ_API_KEY
         sync: false
       - key: GOOGLE_CSE_API_KEY
