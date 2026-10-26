@@ -95,12 +95,17 @@ async def renew_lock(name: str, owner: str, ttl: int = 120) -> bool:
     """Renew a lock only while it still exists and belongs to this process."""
     if not USE_REDIS:
         return False
-    current = await _redis(["GET", f"{PREFIX}:lock:{name}"])
-    if current != owner:
-        return False
-    return await _redis(
-        ["SET", f"{PREFIX}:lock:{name}", owner, "XX", "EX", str(ttl)]
-    ) == "OK"
+    # Compare owner and extend the TTL atomically. Separate GET and SET calls
+    # can race with expiry and another process acquiring the lock.
+    result = await _redis([
+        "EVAL",
+        "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('expire', KEYS[1], ARGV[2]) else return 0 end",
+        "1",
+        f"{PREFIX}:lock:{name}",
+        owner,
+        str(ttl),
+    ])
+    return result == 1
 
 
 async def release_lock(name: str, owner: str) -> None:
