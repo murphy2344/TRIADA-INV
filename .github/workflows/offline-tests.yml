@@ -2,7 +2,7 @@ name: Offline tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/postgres-storage-migration]
   pull_request:
     branches: [main]
 

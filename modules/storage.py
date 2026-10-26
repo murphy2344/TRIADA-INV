@@ -1,4 +1,4 @@
-import aiosqlite
+from modules import db_compat
 import logging
 from config.config import DB_PATH
 import os
@@ -6,8 +6,24 @@ import os
 logger = logging.getLogger(__name__)
 
 async def init_db():
+    if db_compat.is_postgres():
+        # The migration is intentionally explicit and version-controlled.
+        from pathlib import Path
+        migration = Path(__file__).resolve().parent.parent / "migrations" / "001_initial_postgres.sql"
+        if not migration.exists():
+            raise RuntimeError(f"PostgreSQL migration file not found: {migration}")
+        async with db_compat.connect(DB_PATH) as db:
+            sql = migration.read_text(encoding="utf-8")
+            sql = "\n".join(line for line in sql.splitlines() if not line.lstrip().startswith("--"))
+            for statement in sql.split(";"):
+                statement = statement.strip()
+                if statement:
+                    await db.execute(statement)
+            # PostgreSQL migrations may be rerun safely because tables use IF NOT EXISTS.
+        logger.info("PostgreSQL database initialized")
+        return
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         await db.execute("""
             CREATE TABLE IF NOT EXISTS published_news (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,14 +129,14 @@ async def init_db():
     logger.info("Database initialized")
 
 async def is_published(news_id: str) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         async with db.execute(
             "SELECT id FROM published_news WHERE news_id = ?", (news_id,)
         ) as cursor:
             return await cursor.fetchone() is not None
 
 async def mark_published(news_id: str, title: str, source: str, url: str, post_type: str):
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         try:
             await db.execute(
                 "INSERT OR IGNORE INTO published_news (news_id, title, source, url, post_type) VALUES (?, ?, ?, ?, ?)",
@@ -131,7 +147,7 @@ async def mark_published(news_id: str, title: str, source: str, url: str, post_t
             logger.error(f"DB mark_published error: {e}")
 
 async def get_recent_titles(hours: int = 6) -> list:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         async with db.execute(
             "SELECT title FROM published_news WHERE published_at > datetime('now', ? || ' hours')",
             (f"-{hours}",)
@@ -142,11 +158,11 @@ async def get_recent_titles(hours: int = 6) -> list:
 async def increment_stats():
     from datetime import date
     today = date.today().isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         try:
             await db.execute(
                 "INSERT INTO bot_stats (date, posts_count) VALUES (?, 1) "
-                "ON CONFLICT(date) DO UPDATE SET posts_count = posts_count + 1",
+                "ON CONFLICT(date) DO UPDATE SET posts_count = bot_stats.posts_count + EXCLUDED.posts_count",
                 (today,)
             )
             await db.commit()
@@ -156,7 +172,7 @@ async def increment_stats():
 async def get_today_stats() -> dict:
     from datetime import date
     today = date.today().isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         async with db.execute(
             "SELECT posts_count, errors_count FROM bot_stats WHERE date = ?", (today,)
         ) as cursor:
@@ -179,7 +195,7 @@ async def save_recommendation(
     проверки трек-рекорда через 24 часа. Вызывается только когда есть тикер
     и рекомендация не 'neutral' (для neutral нет чёткого направления, которое
     можно проверить)."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         try:
             from datetime import datetime, timezone
             from modules.track_record import horizon_for
@@ -202,7 +218,7 @@ async def save_recommendation(
 
 async def get_unchecked_recommendations(older_than_hours: int | None = None) -> list:
     """Return unchecked signals whose configured horizon has elapsed."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         if older_than_hours is None:
             query = (
                 "SELECT id, ticker, recommendation, price_at_post, category, confidence, "
@@ -240,7 +256,7 @@ async def update_recommendation_result(
     pnl_percent: float | None = None,
     max_drawdown_percent: float | None = None,
 ):
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         try:
             await db.execute(
                 "UPDATE recommendations SET checked = 1, correct = ?, "
@@ -258,7 +274,7 @@ async def update_recommendation_result(
 
 async def get_accuracy_stats(days: int = 7) -> dict:
     """% попаданий рекомендаций за последние N дней — для weekly recap и /status."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         async with db.execute(
             "SELECT COUNT(*), SUM(correct), AVG(pnl_percent) FROM recommendations "
             "WHERE checked = 1 AND posted_at >= datetime('now', ? || ' days')",
@@ -287,7 +303,7 @@ async def get_accuracy_stats(days: int = 7) -> dict:
 
 
 async def get_track_record_by_category(days: int = 7) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         async with db.execute(
             "SELECT category, COUNT(*), SUM(correct), AVG(pnl_percent) "
             "FROM recommendations WHERE checked = 1 "
@@ -310,14 +326,14 @@ async def get_track_record_by_category(days: int = 7) -> list[dict]:
 async def get_meta(key: str) -> str | None:
     """Универсальное key-value хранилище для мелких значений (например,
     ID закреплённого сообщения с пульсом рынка)."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         async with db.execute("SELECT value FROM bot_meta WHERE key = ?", (key,)) as cursor:
             row = await cursor.fetchone()
             return row[0] if row else None
 
 
 async def set_meta(key: str, value: str):
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         await db.execute(
             "INSERT INTO bot_meta (key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -357,7 +373,7 @@ async def clear_stale_alerts(cooldown_hours: int = 24):
     иначе was_alerted_recently будет молчать вечно (bot_meta без TTL)."""
     import datetime
     cutoff = datetime.datetime.utcnow() - datetime.timedelta(hours=cooldown_hours)
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         async with db.execute(
             "SELECT key, value FROM bot_meta WHERE key LIKE 'ta_alert:%'"
         ) as cursor:
@@ -375,12 +391,12 @@ async def clear_stale_alerts(cooldown_hours: int = 24):
 # ─── User Portfolio Functions ────────────────────────────────────────────────
 
 async def add_to_portfolio(user_id: int, ticker: str, quantity: float, avg_price: float):
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         await db.execute(
             """INSERT INTO user_portfolios (user_id, ticker, quantity, avg_price)
                VALUES (?, ?, ?, ?)
                ON CONFLICT(user_id, ticker) DO UPDATE SET
-               quantity = quantity + excluded.quantity,
+               quantity = user_portfolios.quantity + EXCLUDED.quantity,
                avg_price = ((user_portfolios.quantity * user_portfolios.avg_price +
                             excluded.quantity * excluded.avg_price) /
                            (user_portfolios.quantity + excluded.quantity))""",
@@ -390,7 +406,7 @@ async def add_to_portfolio(user_id: int, ticker: str, quantity: float, avg_price
 
 
 async def remove_from_portfolio(user_id: int, ticker: str, quantity: float = None):
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         if quantity is None:
             await db.execute(
                 "DELETE FROM user_portfolios WHERE user_id = ? AND ticker = ?",
@@ -410,7 +426,7 @@ async def remove_from_portfolio(user_id: int, ticker: str, quantity: float = Non
 
 
 async def get_portfolio(user_id: int) -> list:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         async with db.execute(
             "SELECT ticker, quantity, avg_price FROM user_portfolios WHERE user_id = ?",
             (user_id,)
@@ -422,7 +438,7 @@ async def get_portfolio(user_id: int) -> list:
 # ─── User Alerts Functions ───────────────────────────────────────────────────
 
 async def add_alert(user_id: int, ticker: str, target_price: float, direction: str):
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         await db.execute(
             """INSERT INTO user_alerts (user_id, ticker, alert_type, target_price, direction)
                VALUES (?, ?, 'price', ?, ?)""",
@@ -434,7 +450,7 @@ async def add_alert(user_id: int, ticker: str, target_price: float, direction: s
 async def add_smart_alert(user_id: int, ticker: str, alert_type: str, params: dict = None):
     """Add a smart alert (breakout, RSI, volume, etc.)."""
     import json
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         await db.execute(
             """INSERT INTO user_alerts (user_id, ticker, alert_type, params)
                VALUES (?, ?, ?, ?)""",
@@ -444,7 +460,7 @@ async def add_smart_alert(user_id: int, ticker: str, alert_type: str, params: di
 
 
 async def get_user_alerts(user_id: int) -> list:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         async with db.execute(
             """SELECT id, ticker, alert_type, target_price, direction, params FROM user_alerts
                WHERE user_id = ? AND triggered = 0""",
@@ -466,7 +482,7 @@ async def get_user_alerts(user_id: int) -> list:
 
 
 async def get_all_active_alerts() -> list:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         async with db.execute(
             "SELECT id, user_id, ticker, alert_type, target_price, direction, params FROM user_alerts WHERE triggered = 0"
         ) as cursor:
@@ -487,7 +503,7 @@ async def get_all_active_alerts() -> list:
 
 
 async def mark_alert_triggered(alert_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         await db.execute(
             "UPDATE user_alerts SET triggered = 1 WHERE id = ?",
             (alert_id,)
@@ -496,7 +512,7 @@ async def mark_alert_triggered(alert_id: int):
 
 
 async def delete_alert(user_id: int, alert_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         await db.execute(
             "DELETE FROM user_alerts WHERE id = ? AND user_id = ?",
             (alert_id, user_id)
@@ -507,7 +523,7 @@ async def delete_alert(user_id: int, alert_id: int):
 # ─── User Watchlist Functions ────────────────────────────────────────────────
 
 async def add_to_watchlist(user_id: int, ticker: str):
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         await db.execute(
             "INSERT OR IGNORE INTO user_watchlists (user_id, ticker) VALUES (?, ?)",
             (user_id, ticker.upper())
@@ -516,7 +532,7 @@ async def add_to_watchlist(user_id: int, ticker: str):
 
 
 async def remove_from_watchlist(user_id: int, ticker: str):
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         await db.execute(
             "DELETE FROM user_watchlists WHERE user_id = ? AND ticker = ?",
             (user_id, ticker.upper())
@@ -525,7 +541,7 @@ async def remove_from_watchlist(user_id: int, ticker: str):
 
 
 async def get_watchlist(user_id: int) -> list:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_compat.connect(DB_PATH) as db:
         async with db.execute(
             "SELECT ticker FROM user_watchlists WHERE user_id = ?",
             (user_id,)
