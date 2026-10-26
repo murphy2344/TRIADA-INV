@@ -12,7 +12,7 @@ from flask import Flask, render_template_string
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes
 
-from config.config import BOT_TOKEN, ADMIN_USERNAME, ADMIN_ID, CHANNEL_ID, GROUP_CHAT_ID
+from config.config import (BOT_TOKEN, ADMIN_USERNAME, ADMIN_ID, CHANNEL_ID, GROUP_CHAT_ID, GEMINI_MODEL, GEMINI_FALLBACK_MODEL, GROQ_MODEL)
 from modules import pipeline, storage, dedup, forum_topics, telegram_monitor, user_commands, bot_commands
 from modules.scheduler import build_scheduler
 from modules.telegram_sender import notify_admin
@@ -52,7 +52,7 @@ pre{background:#010409;padding:12px;border-radius:6px;color:#f85149;font-size:12
 <p>Канал: <code>{{ channel }}</code></p>
 </div>
 <div class="card"><h2>Модули</h2>
-<p>✅ AI: Gemini gemini-2.5-flash (fallback: Groq)</p>
+<p>✅ AI: Gemini {{ gemini_model }} → {{ gemini_fallback }} (fallback: Groq {{ groq_model }})</p>
 <p>✅ AI-критик: Gemini (fallback: Groq, только high-impact BREAKING)</p>
 <p>✅ Графики: Finviz (с детектом заглушки) → yfinance+matplotlib (fallback)</p>
 <p>✅ Фото: стаб-файлы из assets/stubs/ / RSS→Wikimedia→Google CSE→Pexels</p>
@@ -80,7 +80,10 @@ def dashboard():
       DASHBOARD_HTML,
       uptime=uptime,
       posts=stats.get("posts", 0),
-      channel=CHANNEL_ID
+      channel=CHANNEL_ID,
+      gemini_model=GEMINI_MODEL,
+      gemini_fallback=GEMINI_FALLBACK_MODEL,
+      groq_model=GROQ_MODEL
   )
 
 @flask_app.route("/health")
