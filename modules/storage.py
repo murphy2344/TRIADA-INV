@@ -327,11 +327,23 @@ async def set_meta(key: str, value: str):
 
 
 async def was_alerted_recently(ticker: str, signal_type: str, cooldown_hours: int = 24) -> bool:
-    """Проверка антиспама: не повторять один и тот же технический сигнал
-    по тому же тикеру чаще, чем раз в cooldown_hours."""
+    """Return True only while the configured technical-alert cooldown is active."""
+    from datetime import datetime, timedelta, timezone
+
     key = f"ta_alert:{ticker}:{signal_type}"
     value = await get_meta(key)
-    return value is not None  # bot_meta не хранит TTL сам по себе — см. ниже
+    if not value:
+        return False
+    try:
+        timestamp = datetime.fromisoformat(value)
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        else:
+            timestamp = timestamp.astimezone(timezone.utc)
+        return datetime.now(timezone.utc) - timestamp < timedelta(hours=max(0, cooldown_hours))
+    except (TypeError, ValueError):
+        logger.warning("Invalid technical-alert timestamp for %s/%s", ticker, signal_type)
+        return False
 
 
 async def mark_alerted(ticker: str, signal_type: str):
