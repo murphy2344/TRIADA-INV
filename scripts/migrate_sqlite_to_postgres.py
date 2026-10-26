@@ -6,7 +6,6 @@ only empty TRIADA tables); existing rows are never overwritten.
 from __future__ import annotations
 
 import argparse
-import asyncio
 import os
 import shutil
 import sqlite3
@@ -102,7 +101,6 @@ def main():
         with psycopg.connect(target, autocommit=False) as remote:
             with remote.cursor() as cur:
                 cur.execute(SCHEMA)
-                remote.commit()
                 target_counts = {}
                 for table in TABLES:
                     cur.execute(sql.SQL("SELECT COUNT(*) FROM {}").format(sql.Identifier(table)))
