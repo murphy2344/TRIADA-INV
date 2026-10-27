@@ -167,6 +167,7 @@ async def send_photo_text_detailed(
                                  parse_mode=ParseMode.HTML, reply_markup=reply_markup,
                                  connect_timeout=10, read_timeout=30, write_timeout=30,
                                  pool_timeout=10, **kwargs)
+            logger.info("Telegram photo sent successfully: source=bytes")
         elif isinstance(media, str) and media.startswith(("https://", "http://")):
             image_bytes = await _download_remote_image(media)
             logger.info("Uploading downloaded photo to Telegram: bytes=%d", len(image_bytes))
@@ -174,12 +175,14 @@ async def send_photo_text_detailed(
                                  parse_mode=ParseMode.HTML, reply_markup=reply_markup,
                                  connect_timeout=10, read_timeout=30, write_timeout=30,
                                  pool_timeout=10, **kwargs)
+            logger.info("Telegram photo sent successfully: source=remote_download bytes=%d", len(image_bytes))
         elif isinstance(media, str) and media.endswith((".jpg", ".jpeg", ".png")):
             with open(media, "rb") as f:
                 await bot.send_photo(chat_id=cid, photo=f, caption=photo_caption,
                                      parse_mode=ParseMode.HTML, reply_markup=reply_markup,
                                      connect_timeout=10, read_timeout=30, write_timeout=30,
                                      pool_timeout=10, **kwargs)
+                logger.info("Telegram photo sent successfully: source=local_file")
         else:
             await bot.send_message(chat_id=cid, text=caption, parse_mode=ParseMode.HTML,
                                    reply_markup=reply_markup, **kwargs)
@@ -208,11 +211,13 @@ async def send_photo_text_detailed(
                 logger.error("Forum topic retry failed: %s", error_text)
                 return False, f"forum topic unavailable: {error_text}"
 
+        logger.warning("Telegram photo send failed; trying text fallback: %s", error_text)
         # If only the photo fails, preserve the actual news as text in the same topic.
         try:
             await bot.send_message(
                 chat_id=cid, text=caption, parse_mode=ParseMode.HTML, **kwargs,
             )
+            logger.info("Telegram text fallback sent successfully after photo failure")
             return True, f"photo failed but text fallback succeeded: {error_text}"
         except Exception:
             try:
