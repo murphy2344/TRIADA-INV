@@ -1,6 +1,7 @@
 import io
-import time
 import logging
+import re
+import time
 import requests
 import matplotlib
 matplotlib.use('Agg')
@@ -133,27 +134,60 @@ def _yfinance_chart(ticker: str, period: str = "5d") -> bytes | None:
         return None
 
 
+def _chart_img_error_detail(response, api_key: str) -> str:
+    """Return a short, secret-safe diagnostic from a Chart-IMG error response."""
+    content_type = response.headers.get("Content-Type", "unknown").split(";", 1)[0]
+    detail = ""
+    if "json" in content_type.lower():
+        try:
+            payload = response.json()
+            if isinstance(payload, dict):
+                for field in ("message", "error", "detail", "code"):
+                    value = payload.get(field)
+                    if isinstance(value, (str, int, float)):
+                        detail = str(value)
+                        break
+        except (ValueError, TypeError):
+            pass
+    if api_key:
+        detail = detail.replace(api_key, "[REDACTED]")
+    detail = re.sub(r"(?i)(bearer\s+)\S+", r"\1[REDACTED]", detail)
+    detail = re.sub(r"(?i)(api[_ -]?key\s*[:=]\s*)[^\s,;]+", r"\1[REDACTED]", detail)
+    detail = re.sub(r"[\r\n\t]+", " ", detail).strip()[:180]
+    return f"content_type={content_type}, detail={detail or 'no safe error message provided'}"
+
+
 def _chart_img(ticker: str) -> bytes | None:
-    """Chart-IMG TradingView image, used when CHART_IMG_API_KEY is configured."""
+    """Chart-IMG v1 TradingView image. Fail safely and log non-secret diagnostics."""
     if not CHART_IMG_API_KEY:
+        logger.debug("Chart-IMG skipped: CHART_IMG_API_KEY is not configured")
         return None
     try:
         response = requests.get(
             "https://api.chart-img.com/v1/tradingview/advanced-chart",
             params={"symbol": ticker, "interval": "1d"},
+            # v1 uses Bearer authentication; x-api-key is documented for v2.
             headers={
                 "Authorization": f"Bearer {CHART_IMG_API_KEY}",
-                "x-api-key": CHART_IMG_API_KEY,
                 "Accept": "image/png",
             },
             timeout=20,
         )
-        if response.ok and response.content.startswith(b"\x89PNG"):
-            logger.info("Chart-IMG chart OK for %s", ticker)
+        content_type = response.headers.get("Content-Type", "")
+        if response.ok and content_type.lower().startswith("image/") and (
+            response.content.startswith(b"\x89PNG\r\n\x1a\n")
+            or response.content.startswith(b"\xff\xd8\xff")
+        ):
+            logger.info("Chart-IMG chart OK for %s (%s)", ticker, content_type.split(";", 1)[0])
             return response.content
-        logger.warning("Chart-IMG failed for %s: HTTP %s", ticker, response.status_code)
+
+        diagnostic = _chart_img_error_detail(response, CHART_IMG_API_KEY)
+        logger.warning(
+            "Chart-IMG failed for %s: HTTP %s; %s",
+            ticker, response.status_code, diagnostic,
+        )
     except Exception as exc:
-        logger.warning("Chart-IMG error for %s: %s", ticker, exc)
+        logger.warning("Chart-IMG request error for %s: %s", ticker, type(exc).__name__)
     return None
 
 
