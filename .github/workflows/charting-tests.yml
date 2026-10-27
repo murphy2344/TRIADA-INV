@@ -12,8 +12,11 @@ on:
     branches:
       - main
       - "fix/chart-img-403-diagnostics"
+      - "fix/photo-provider-validation"
     paths:
       - "modules/charting.py"
+      - "modules/media.py"
+      - "modules/telegram_sender.py"
       - "tests/test_charting.py"
       - ".github/workflows/charting-tests.yml"
 
