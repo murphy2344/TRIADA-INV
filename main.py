@@ -1067,7 +1067,7 @@ async def main():
                if not dedup.USE_REDIS else
                "🔴 Upstash Redis — проверка не пройдена")
           )
-          overall = "🟡 ЗАПУСК · ИДЁТ ПРОВЕРКА" if (sqlite_ok and redis_ok and topics_ok) else "🟠 ЗАПУСК С ПРЕДУПРЕЖДЕНИЯМИ"
+          overall = "🟡 ЗАПУСК · ИДЁТ ПРОВЕРКА" if (sqlite_ok and (redis_ok or not dedup.USE_REDIS) and topics_ok) else "🟠 ЗАПУСК С ПРЕДУПРЕЖДЕНИЯМИ"
           timestamp = datetime.now(MSK).strftime('%d.%m.%Y %H:%M:%S')
           msg = (
               f"◢ <b>TRIADA INVESTING</b>\n"
@@ -1127,26 +1127,26 @@ async def main():
               and topics_final_ok and scheduler_ok else "🟠 СИСТЕМА ЗАПУЩЕНА С ПРЕДУПРЕЖДЕНИЯМИ"
           )
           final_msg = (
-              f"◢ <b>TRIADA INVESTING</b>\\n"
-              f"<code>SYSTEM STATUS</code> · <i>{datetime.now(MSK).strftime('%d.%m.%Y %H:%M:%S')} МСК</i>\\n\\n"
-              f"<b>{final_overall}</b>\\n\\n"
-              f"<b>ИНФРАСТРУКТУРА</b>\\n"
-              f"{db_mark} {db_label} — {'подключение и запрос OK' if db_final_ok else 'ОШИБКА подключения / запроса'}\\n"
-              f"{redis_mark} Upstash Redis — {'подключение OK' if redis_final_ok else ('не настроен, fallback активен' if not dedup.USE_REDIS else 'ОШИБКА проверки')}\\n"
-              f"{topics_mark} Форум-темы — <b>{len(topic_ids)}/{len(forum_topics.TOPIC_NAMES)}</b>\\n"
-              f"{scheduler_mark} Планировщик — {'активен · ' + str(len(jobs)) + ' задач' if scheduler_ok else 'НЕ ЗАПУЩЕН'}\\n\\n"
-              f"<b>АВТОМАТИЗАЦИЯ</b>\\n"
-              f"• RSI / SMA — почасовое расписание · /alerts\\n"
-              f"• Track Record — проверка результатов каждый час\\n"
-              f"• Telegram-мониторинг — каждые 5 мин, если настроен TG_*\\n\\n"
-              f"<b>ИНТЕГРАЦИИ</b>\\n"
-              f"• AI — <code>{GEMINI_MODEL}</code> → <code>{GEMINI_FALLBACK_MODEL}</code> → Groq\\n"
-              f"• Новости — RSS · Wikimedia · Google CSE · Pexels / Pixabay\\n"
-              f"• Графики — Finviz / yfinance · изображения — assets/stubs/\\n"
-              f"🟡 Внешние API — не вызывались в рамках startup-check\\n\\n"
-              f"<b>ЗАДАЧИ ПО РАСПИСАНИЮ</b>\\n"
-              f"• COT / CFTC — Пт, 23:00 МСК · /cot\\n"
-              f"• 13F / SEC EDGAR — Пн, 10:00 МСК · /13f\\n\\n"
+              f"◢ <b>TRIADA INVESTING</b>\n"
+              f"<code>SYSTEM STATUS</code> · <i>{datetime.now(MSK).strftime('%d.%m.%Y %H:%M:%S')} МСК</i>\n\n"
+              f"<b>{final_overall}</b>\n\n"
+              f"<b>ИНФРАСТРУКТУРА</b>\n"
+              f"{db_mark} {db_label} — {'подключение и запрос OK' if db_final_ok else 'ОШИБКА подключения / запроса'}\n"
+              f"{redis_mark} Upstash Redis — {'подключение OK' if redis_final_ok else ('не настроен, fallback активен' if not dedup.USE_REDIS else 'ОШИБКА проверки')}\n"
+              f"{topics_mark} Форум-темы — <b>{len(topic_ids)}/{len(forum_topics.TOPIC_NAMES)}</b>\n"
+              f"{scheduler_mark} Планировщик — {'активен · ' + str(len(jobs)) + ' задач' if scheduler_ok else 'НЕ ЗАПУЩЕН'}\n\n"
+              f"<b>АВТОМАТИЗАЦИЯ</b>\n"
+              f"• RSI / SMA — почасовое расписание · /alerts\n"
+              f"• Track Record — проверка результатов каждый час\n"
+              f"• Telegram-мониторинг — каждые 5 мин, если настроен TG_*\n\n"
+              f"<b>ИНТЕГРАЦИИ</b>\n"
+              f"• AI — <code>{GEMINI_MODEL}</code> → <code>{GEMINI_FALLBACK_MODEL}</code> → Groq\n"
+              f"• Новости — RSS · Wikimedia · Google CSE · Pexels / Pixabay\n"
+              f"• Графики — Finviz / yfinance · изображения — assets/stubs/\n"
+              f"🟡 Внешние API — не вызывались в рамках startup-check\n\n"
+              f"<b>ЗАДАЧИ ПО РАСПИСАНИЮ</b>\n"
+              f"• COT / CFTC — Пт, 23:00 МСК · /cot\n"
+              f"• 13F / SEC EDGAR — Пн, 10:00 МСК · /13f\n\n"
               f"<i>OK = проверено сейчас · 🟡 = настроено / не проверено · 🔴 = проверка не пройдена</i>"
           )
           try:
