@@ -64,7 +64,7 @@ def _review_with_gemini(
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {
                 "temperature": 0.4,
-                "maxOutputTokens": 8192,
+                "maxOutputTokens": 512,
                 "responseMimeType": "application/json",
             },
         },
@@ -96,11 +96,13 @@ def review(summary: str, recommendation: str, recommendation_text: str) -> dict 
     if not GROQ_API_KEY:
         return None
 
-    for model in dict.fromkeys([
-        *CRITIC_MODELS,
-        "openai/gpt-oss-20b",
-        "openai/gpt-oss-120b",
-    ]):
+    # At most two Groq attempts; don't retry the same models under aliases.
+    groq_models = list(dict.fromkeys(
+        model.strip()
+        for model in CRITIC_MODELS[:2]
+        if model and model.strip()
+    ))
+    for model in groq_models:
         try:
             client = Groq(api_key=GROQ_API_KEY, max_retries=0, timeout=12)
             response = client.chat.completions.create(
