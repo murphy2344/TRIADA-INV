@@ -246,7 +246,34 @@ def _analyze_groq(prompt: str, category: str, model: str, attempt: int) -> dict 
         return None
 
 
+def _obviously_nonfinancial(text: str) -> bool:
+    """Conservative zero-token gate for unmistakable non-market headlines."""
+    lowered = (text or "").lower()
+    finance_terms = (
+        "stock", "shares", "market", "investor", "revenue", "earnings", "profit",
+        "inflation", "rate", "fed", "ecb", "central bank", "bond", "oil", "gold",
+        "bitcoin", "crypto", " доллар", "акци", "бирж", "рын", "инвест",
+        "выруч", "прибыл", "инфляц", "ставк", "центробанк", "облигац", "нефт",
+        "золот", "биткоин", "криптовалют", "рубл", "евро", "доллар", "пошлин",
+        "санкц", "экспорт", "импорт", "gdp", "cpi", "pmi", "ipo", "merger",
+    )
+    nonmarket_terms = (
+        "football match", "soccer match", "basketball game", "tennis match",
+        "movie premiere", "celebrity wedding", "reality show",
+        "футбольный матч", "баскетбольный матч", "теннисный матч",
+        "премьера фильма", "свадьба актёра", "свадьба актера",
+        "новый сезон сериала", "победил в матче", "результат матча",
+    )
+    return any(term in lowered for term in nonmarket_terms) and not any(
+        term in lowered for term in finance_terms
+    )
+
+
 def analyze(raw_text: str, category: str = "BREAKING") -> dict | None:
+    if _obviously_nonfinancial(raw_text):
+        logger.info("AI_PREFILTER skipped obvious non-financial item category=%s", category)
+        return {"relevant": False, "post_type": "skip"}
+
     if not GEMINI_API_KEY and not GROQ_API_KEY:
         logger.error("Neither GEMINI_API_KEY nor GROQ_API_KEY is set")
         return None
