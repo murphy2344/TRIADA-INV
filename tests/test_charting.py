@@ -101,11 +101,11 @@ class PhotoProviderChainTests(unittest.IsolatedAsyncioTestCase):
     async def test_local_stub_is_used_when_all_providers_fail(self):
         from modules import media
         from unittest.mock import AsyncMock
-        with patch.object(media, "_wikimedia_commons", new=AsyncMock(return_value=None)), \\
-             patch.object(media, "_wikipedia_pageimage", new=AsyncMock(return_value=None)), \\
-             patch.object(media, "_google_cse", new=AsyncMock(return_value=None)), \\
-             patch.object(media, "_pexels", new=AsyncMock(return_value=None)), \\
-             patch.object(media, "_pixabay", new=AsyncMock(return_value=None)), \\
+        with patch.object(media, "_wikimedia_commons", new=AsyncMock(return_value=None)), \
+             patch.object(media, "_wikipedia_pageimage", new=AsyncMock(return_value=None)), \
+             patch.object(media, "_google_cse", new=AsyncMock(return_value=None)), \
+             patch.object(media, "_pexels", new=AsyncMock(return_value=None)), \
+             patch.object(media, "_pixabay", new=AsyncMock(return_value=None)), \
              patch.object(media, "_load_stub_file", return_value=b"stub-image"):
             result = await media.get_photo("Market news")
         self.assertEqual(result, b"stub-image")
@@ -116,7 +116,7 @@ class RemotePhotoSendTests(unittest.IsolatedAsyncioTestCase):
         from modules import telegram_sender
         from unittest.mock import AsyncMock
         bot = AsyncMock()
-        image = b"\\x89PNG\\r\\n\\x1a\\nunit-test-image"
+        image = b"\x89PNG\r\n\x1a\nunit-test-image"
         with patch.object(telegram_sender, "_download_remote_image", new=AsyncMock(return_value=image)) as download:
             ok, detail = await telegram_sender.send_photo_text_detailed(
                 bot, "https://images.example/test.png", "Market update", chat_id="-100123"
@@ -145,7 +145,7 @@ class RemotePhotoSendTests(unittest.IsolatedAsyncioTestCase):
         from unittest.mock import AsyncMock
         bot = AsyncMock()
         caption = "x" * 1100
-        with patch.object(telegram_sender, "_download_remote_image", new=AsyncMock(return_value=b"\\xff\\xd8\\xffimage")):
+        with patch.object(telegram_sender, "_download_remote_image", new=AsyncMock(return_value=b"\xff\xd8\xffimage")):
             ok, detail = await telegram_sender.send_photo_text_detailed(
                 bot, "https://images.example/test.jpg", caption, chat_id="-100123"
             )
