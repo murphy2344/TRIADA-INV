@@ -53,6 +53,7 @@ async def _download_remote_image(url: str) -> bytes:
             )
             if not any(signatures):
                 raise ValueError("Remote response is not a supported image file")
+            logger.info("Remote photo downloaded and validated: bytes=%d content_type=%s", len(data), response.headers.get("Content-Type", "unknown"))
             return data
 
 
@@ -163,15 +164,22 @@ async def send_photo_text_detailed(
 
         if isinstance(media, bytes):
             await bot.send_photo(chat_id=cid, photo=media, caption=photo_caption,
-                                 parse_mode=ParseMode.HTML, reply_markup=reply_markup, **kwargs)
+                                 parse_mode=ParseMode.HTML, reply_markup=reply_markup,
+                                 connect_timeout=10, read_timeout=30, write_timeout=30,
+                                 pool_timeout=10, **kwargs)
         elif isinstance(media, str) and media.startswith(("https://", "http://")):
             image_bytes = await _download_remote_image(media)
+            logger.info("Uploading downloaded photo to Telegram: bytes=%d", len(image_bytes))
             await bot.send_photo(chat_id=cid, photo=image_bytes, caption=photo_caption,
-                                 parse_mode=ParseMode.HTML, reply_markup=reply_markup, **kwargs)
+                                 parse_mode=ParseMode.HTML, reply_markup=reply_markup,
+                                 connect_timeout=10, read_timeout=30, write_timeout=30,
+                                 pool_timeout=10, **kwargs)
         elif isinstance(media, str) and media.endswith((".jpg", ".jpeg", ".png")):
             with open(media, "rb") as f:
                 await bot.send_photo(chat_id=cid, photo=f, caption=photo_caption,
-                                     parse_mode=ParseMode.HTML, reply_markup=reply_markup, **kwargs)
+                                     parse_mode=ParseMode.HTML, reply_markup=reply_markup,
+                                     connect_timeout=10, read_timeout=30, write_timeout=30,
+                                     pool_timeout=10, **kwargs)
         else:
             await bot.send_message(chat_id=cid, text=caption, parse_mode=ParseMode.HTML,
                                    reply_markup=reply_markup, **kwargs)
