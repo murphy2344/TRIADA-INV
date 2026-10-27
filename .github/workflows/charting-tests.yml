@@ -4,14 +4,19 @@ on:
   pull_request:
     paths:
       - "modules/charting.py"
+      - "modules/media.py"
+      - "modules/telegram_sender.py"
       - "tests/test_charting.py"
       - ".github/workflows/charting-tests.yml"
   push:
     branches:
       - main
       - "fix/chart-img-403-diagnostics"
+      - "fix/photo-provider-validation"
     paths:
       - "modules/charting.py"
+      - "modules/media.py"
+      - "modules/telegram_sender.py"
       - "tests/test_charting.py"
       - ".github/workflows/charting-tests.yml"
 
@@ -27,6 +32,6 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install charting test dependencies
-        run: python -m pip install --upgrade pip requests matplotlib yfinance
-      - name: Run isolated Chart-IMG tests
+        run: python -m pip install --upgrade pip requests matplotlib yfinance aiohttp Pillow python-telegram-bot
+      - name: Run charting, photo provider, and Telegram sender tests
         run: python -m unittest tests.test_charting -v

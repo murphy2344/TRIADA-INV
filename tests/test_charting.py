@@ -68,3 +68,89 @@ class ChartImgTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PhotoProviderChainTests(unittest.IsolatedAsyncioTestCase):
+    async def test_rss_image_has_highest_priority(self):
+        from modules import media
+        with patch.object(media, "_wikimedia_commons", new=__import__("unittest").mock.AsyncMock()) as commons:
+            result = await media.get_photo("Company earnings", rss_image="https://example.test/rss.jpg")
+        self.assertEqual(result, "https://example.test/rss.jpg")
+        commons.assert_not_awaited()
+
+    async def test_all_five_remote_providers_are_tried_in_priority_order(self):
+        from modules import media
+        from unittest.mock import AsyncMock
+        providers = ["_wikimedia_commons", "_wikipedia_pageimage", "_google_cse", "_pexels", "_pixabay"]
+        for selected_index, selected_provider in enumerate(providers):
+            with self.subTest(provider=selected_provider):
+                patches = []
+                for index, name in enumerate(providers):
+                    value = f"https://images.example/{name}.jpg" if index == selected_index else None
+                    patches.append(patch.object(media, name, new=AsyncMock(return_value=value)))
+                try:
+                    mocks = [p.start() for p in patches]
+                    result = await media.get_photo("Market news", subject_en="Market news")
+                    self.assertEqual(result, f"https://images.example/{selected_provider}.jpg")
+                    for index, mock in enumerate(mocks):
+                        self.assertEqual(mock.await_count, 1 if index <= selected_index else 0)
+                finally:
+                    for p in reversed(patches):
+                        p.stop()
+
+    async def test_local_stub_is_used_when_all_providers_fail(self):
+        from modules import media
+        from unittest.mock import AsyncMock
+        with patch.object(media, "_wikimedia_commons", new=AsyncMock(return_value=None)), \
+             patch.object(media, "_wikipedia_pageimage", new=AsyncMock(return_value=None)), \
+             patch.object(media, "_google_cse", new=AsyncMock(return_value=None)), \
+             patch.object(media, "_pexels", new=AsyncMock(return_value=None)), \
+             patch.object(media, "_pixabay", new=AsyncMock(return_value=None)), \
+             patch.object(media, "_load_stub_file", return_value=b"stub-image"):
+            result = await media.get_photo("Market news")
+        self.assertEqual(result, b"stub-image")
+
+
+class RemotePhotoSendTests(unittest.IsolatedAsyncioTestCase):
+    async def test_remote_url_is_downloaded_and_uploaded_as_bytes(self):
+        from modules import telegram_sender
+        from unittest.mock import AsyncMock
+        bot = AsyncMock()
+        image = b"\x89PNG\r\n\x1a\nunit-test-image"
+        with patch.object(telegram_sender, "_download_remote_image", new=AsyncMock(return_value=image)) as download:
+            ok, detail = await telegram_sender.send_photo_text_detailed(
+                bot, "https://images.example/test.png", "Market update", chat_id="-100123"
+            )
+        self.assertTrue(ok)
+        self.assertEqual(detail, "")
+        download.assert_awaited_once_with("https://images.example/test.png")
+        self.assertEqual(bot.send_photo.await_args.kwargs["photo"], image)
+        bot.send_message.assert_not_awaited()
+
+    async def test_remote_download_timeout_falls_back_to_text(self):
+        from modules import telegram_sender
+        from unittest.mock import AsyncMock
+        bot = AsyncMock()
+        with patch.object(telegram_sender, "_download_remote_image", new=AsyncMock(side_effect=TimeoutError("host timeout"))):
+            ok, detail = await telegram_sender.send_photo_text_detailed(
+                bot, "https://images.example/test.png", "Market update", chat_id="-100123"
+            )
+        self.assertTrue(ok)
+        self.assertIn("text fallback succeeded", detail)
+        bot.send_photo.assert_not_awaited()
+        self.assertEqual(bot.send_message.await_args.kwargs["text"], "Market update")
+
+    async def test_long_caption_is_sent_separately_after_photo(self):
+        from modules import telegram_sender
+        from unittest.mock import AsyncMock
+        bot = AsyncMock()
+        caption = "x" * 1100
+        with patch.object(telegram_sender, "_download_remote_image", new=AsyncMock(return_value=b"\xff\xd8\xffimage")):
+            ok, detail = await telegram_sender.send_photo_text_detailed(
+                bot, "https://images.example/test.jpg", caption, chat_id="-100123"
+            )
+        self.assertTrue(ok)
+        self.assertEqual(detail, "")
+        self.assertEqual(bot.send_photo.await_args.kwargs["caption"], "")
+        self.assertEqual(bot.send_message.await_args.kwargs["text"], caption)
+
