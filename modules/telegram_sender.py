@@ -1,6 +1,7 @@
 import html
 import logging
 import re
+import aiohttp
 from telegram import Bot
 from telegram.constants import ParseMode
 from telegram.error import TelegramError
@@ -13,6 +14,46 @@ def _default_chat_id() -> str:
 
 
 logger = logging.getLogger(__name__)
+
+
+MAX_REMOTE_IMAGE_BYTES = 10 * 1024 * 1024
+
+
+async def _download_remote_image(url: str) -> bytes:
+    """Download and validate remote images before uploading them to Telegram.
+
+    Telegram fetching third-party URLs can time out or reject inaccessible URLs.
+    Downloading here lets us validate the response and upload known image bytes.
+    """
+    if not isinstance(url, str) or not url.startswith(("https://", "http://")):
+        raise ValueError("Unsupported image URL")
+
+    timeout = aiohttp.ClientTimeout(total=12, connect=5, sock_read=8)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with session.get(url, allow_redirects=True) as response:
+            if response.status != 200:
+                raise ValueError(f"Image host returned HTTP {response.status}")
+            if not response.headers.get("Content-Type", "").lower().startswith("image/"):
+                raise ValueError("Remote URL did not return an image content type")
+            if response.content_length and response.content_length > MAX_REMOTE_IMAGE_BYTES:
+                raise ValueError("Remote image exceeds 10 MB limit")
+
+            chunks = bytearray()
+            async for chunk in response.content.iter_chunked(64 * 1024):
+                chunks.extend(chunk)
+                if len(chunks) > MAX_REMOTE_IMAGE_BYTES:
+                    raise ValueError("Remote image exceeds 10 MB limit")
+
+            data = bytes(chunks)
+            signatures = (
+                data.startswith(b"\\x89PNG\\r\\n\\x1a\\n"),
+                data.startswith(b"\\xff\\xd8\\xff"),
+                data.startswith((b"GIF87a", b"GIF89a")),
+                len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP",
+            )
+            if not any(signatures):
+                raise ValueError("Remote response is not a supported image file")
+            return data
 
 
 def _plain_text(text: str) -> str:
@@ -123,8 +164,9 @@ async def send_photo_text_detailed(
         if isinstance(media, bytes):
             await bot.send_photo(chat_id=cid, photo=media, caption=photo_caption,
                                  parse_mode=ParseMode.HTML, reply_markup=reply_markup, **kwargs)
-        elif isinstance(media, str) and media.startswith("http"):
-            await bot.send_photo(chat_id=cid, photo=media, caption=photo_caption,
+        elif isinstance(media, str) and media.startswith(("https://", "http://")):
+            image_bytes = await _download_remote_image(media)
+            await bot.send_photo(chat_id=cid, photo=image_bytes, caption=photo_caption,
                                  parse_mode=ParseMode.HTML, reply_markup=reply_markup, **kwargs)
         elif isinstance(media, str) and media.endswith((".jpg", ".jpeg", ".png")):
             with open(media, "rb") as f:
