@@ -1,7 +1,12 @@
 import unittest
 from unittest.mock import patch
 
-from modules import ai_analyzer
+try:
+    from modules import ai_analyzer
+except ModuleNotFoundError as exc:
+    if exc.name in {"requests", "groq"}:
+        raise unittest.SkipTest(f"AI analyzer dependencies are not installed: {exc.name}")
+    raise
 
 
 class AIFilterTests(unittest.TestCase):
