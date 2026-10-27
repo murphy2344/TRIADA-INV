@@ -68,7 +68,7 @@ def _review_with_gemini(
                 "responseMimeType": "application/json",
             },
         },
-        timeout=20,
+        timeout=12,
     )
     response.raise_for_status()
     data = response.json()
@@ -82,7 +82,7 @@ def review(summary: str, recommendation: str, recommendation_text: str) -> dict 
     prompt = _prompt(summary, recommendation, recommendation_text)
 
     if GEMINI_API_KEY:
-        for model in dict.fromkeys([GEMINI_MODEL, GEMINI_FALLBACK_MODEL]):
+        for model in dict.fromkeys([GEMINI_MODEL]):
             try:
                 result = _review_with_gemini(prompt, model)
                 logger.info(
@@ -102,7 +102,7 @@ def review(summary: str, recommendation: str, recommendation_text: str) -> dict 
         "openai/gpt-oss-120b",
     ]):
         try:
-            client = Groq(api_key=GROQ_API_KEY)
+            client = Groq(api_key=GROQ_API_KEY, max_retries=0, timeout=12)
             response = client.chat.completions.create(
                 model=model,
                 messages=[
