@@ -13,7 +13,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from config.config import (BOT_TOKEN, ADMIN_USERNAME, ADMIN_ID, CHANNEL_ID, GROUP_CHAT_ID, GEMINI_MODEL, GEMINI_FALLBACK_MODEL, GROQ_MODEL)
-from modules import pipeline, storage, dedup, forum_topics, telegram_monitor, user_commands, bot_commands
+from modules import pipeline, storage, dedup, db_compat, forum_topics, telegram_monitor, user_commands, bot_commands
 from modules.scheduler import build_scheduler
 from modules.telegram_sender import notify_admin
 
@@ -1051,34 +1051,52 @@ async def main():
           else:
               redis_status = f"❌ Upstash Redis — ошибка: {redis_error}"
 
-          overall = "🟢 ЗАПУСК: ПРОВЕРКИ ПРОЙДЕНЫ" if (sqlite_ok and redis_ok) else "🟠 ЗАПУСК С ПРЕДУПРЕЖДЕНИЯМИ"
           topics_ok = len(topic_ids) == len(forum_topics.TOPIC_NAMES)
+          db_url = db_compat.DATABASE_URL
+          if db_compat.is_postgres():
+              db_label = "Neon PostgreSQL" if "neon.tech" in db_url.lower() else "PostgreSQL"
+              db_status = f"{'🟢' if sqlite_ok else '🔴'} {db_label} — {'подключение и запрос OK' if sqlite_ok else 'ошибка подключения / запроса'}"
+          else:
+              db_label = "SQLite"
+              db_status = f"{'🟢' if sqlite_ok else '🔴'} SQLite — {'подключение и запрос OK' if sqlite_ok else 'ошибка подключения / запроса'}"
+
+          redis_status = (
+              f"🟢 Upstash Redis — подключение OK"
+              if redis_ok else
+              ("🟡 Upstash Redis — не настроен, используется fallback"
+               if not dedup.USE_REDIS else
+               "🔴 Upstash Redis — проверка не пройдена")
+          )
+          overall = "🟡 ЗАПУСК · ИДЁТ ПРОВЕРКА" if (sqlite_ok and redis_ok and topics_ok) else "🟠 ЗАПУСК С ПРЕДУПРЕЖДЕНИЯМИ"
+          timestamp = datetime.now(MSK).strftime('%d.%m.%Y %H:%M:%S')
           msg = (
               f"◢ <b>TRIADA INVESTING</b>\n"
-              f"<code>SYSTEM START</code> · <i>{datetime.now(MSK).strftime('%d.%m.%Y %H:%M:%S')} МСК</i>\n\n"
+              f"<code>SYSTEM START</code> · <i>{timestamp} МСК</i>\n\n"
               f"<b>{overall}</b>\n\n"
               f"<b>ИНФРАСТРУКТУРА</b>\n"
-              f"{sqlite_status}\n"
+              f"{db_status}\n"
               f"{redis_status}\n"
-              f"{'🟢' if topics_ok else '🟠'} Форум-темы: <b>{len(topic_ids)}/{len(forum_topics.TOPIC_NAMES)}</b>\n\n"
+              f"{'🟢' if topics_ok else '🟠'} Форум-темы — <b>{len(topic_ids)}/{len(forum_topics.TOPIC_NAMES)}</b>\n"
+              f"🟡 Планировщик — проверка запуска…\n\n"
               f"<b>АВТОМАТИЗАЦИЯ</b>\n"
-              f"🕒 Планировщик: <i>инициализация продолжается</i>\n"
-              f"• RSI / SMA: почасовые алерты · /alerts\n"
-              f"• Track Record: проверка результата через 24 ч\n"
-              f"• Telegram-мониторинг: интервал 5 мин, если заданы TG_*\n\n"
+              f"• RSI / SMA — почасовое расписание · /alerts\n"
+              f"• Track Record — проверка результатов каждый час\n"
+              f"• Telegram-мониторинг — каждые 5 мин, если настроен TG_*\n\n"
               f"<b>ИНТЕГРАЦИИ</b>\n"
-              f"• AI: <code>{GEMINI_MODEL}</code> → <code>{GEMINI_FALLBACK_MODEL}</code> → Groq\n"
-              f"• Новости: RSS · Wikimedia · Google CSE · Pexels / Pixabay\n"
-              f"• Графики: Finviz / yfinance · изображения: assets/stubs/\n"
-              f"<i>Внешние сервисы: доступность не проверена при запуске</i>\n\n"
+              f"• AI — <code>{GEMINI_MODEL}</code> → <code>{GEMINI_FALLBACK_MODEL}</code> → Groq\n"
+              f"• Новости — RSS · Wikimedia · Google CSE · Pexels / Pixabay\n"
+              f"• Графики — Finviz / yfinance · изображения — assets/stubs/\n"
+              f"🟡 Внешние API — конфигурация указана, доступность отдельно не проверена\n\n"
               f"<b>ЗАДАЧИ ПО РАСПИСАНИЮ</b>\n"
-              f"• COT / CFTC: Пт, 23:00 МСК · /cot\n"
-              f"• 13F / SEC EDGAR: Пн, 10:00 МСК · /13f\n\n"
-              f"<i>Статус подтверждает только выполненные проверки. "
-              f"Запуск планировщика, ответы внешних API и успешная публикация в канал требуют отдельных проверок.</i>"
+              f"• COT / CFTC — Пт, 23:00 МСК · /cot\n"
+              f"• 13F / SEC EDGAR — Пн, 10:00 МСК · /13f\n\n"
+              f"<i>Обновление статуса после запуска планировщика…</i>"
           )
-          await notify_admin(application.bot, admin_id, msg)
-          logger.info(f"Startup diagnostic sent. SQLite={sqlite_ok}, Redis={redis_ok}")
+          startup_message = await application.bot.send_message(
+              chat_id=admin_id, text=msg, parse_mode="HTML", disable_web_page_preview=True
+          )
+          logger.info("Initial startup diagnostic sent. DB=%s, Redis=%s", db_label, redis_ok)
+
 
       # Start scheduled publishing only after this process owns polling.
       # During Render's overlapping deploy window, a waiting instance must not
@@ -1086,6 +1104,60 @@ async def main():
       scheduler = build_scheduler(application.bot, admin_id)
       scheduler.start()
       logger.info("Scheduler started with all jobs (misfire_grace_time=600s)")
+      if admin_id:
+          # Recheck core dependencies after scheduler startup, then edit the original Telegram message.
+          try:
+              await storage.get_today_stats()
+              db_final_ok = True
+          except Exception as exc:
+              db_final_ok = False
+              logger.error("Startup DB health check failed: %s", type(exc).__name__)
+
+          redis_final_ok, redis_final_error = await dedup.check_redis_connection()
+          jobs = scheduler.get_jobs()
+          scheduler_ok = bool(scheduler.running and jobs)
+          topics_final_ok = len(topic_ids) == len(forum_topics.TOPIC_NAMES)
+
+          db_mark = "🟢" if db_final_ok else "🔴"
+          redis_mark = "🟢" if redis_final_ok else ("🟡" if not dedup.USE_REDIS else "🔴")
+          topics_mark = "🟢" if topics_final_ok else "🟠"
+          scheduler_mark = "🟢" if scheduler_ok else "🔴"
+          final_overall = (
+              "🟢 СИСТЕМА ЗАПУЩЕНА" if db_final_ok and (redis_final_ok or not dedup.USE_REDIS)
+              and topics_final_ok and scheduler_ok else "🟠 СИСТЕМА ЗАПУЩЕНА С ПРЕДУПРЕЖДЕНИЯМИ"
+          )
+          final_msg = (
+              f"◢ <b>TRIADA INVESTING</b>\\n"
+              f"<code>SYSTEM STATUS</code> · <i>{datetime.now(MSK).strftime('%d.%m.%Y %H:%M:%S')} МСК</i>\\n\\n"
+              f"<b>{final_overall}</b>\\n\\n"
+              f"<b>ИНФРАСТРУКТУРА</b>\\n"
+              f"{db_mark} {db_label} — {'подключение и запрос OK' if db_final_ok else 'ОШИБКА подключения / запроса'}\\n"
+              f"{redis_mark} Upstash Redis — {'подключение OK' if redis_final_ok else ('не настроен, fallback активен' if not dedup.USE_REDIS else 'ОШИБКА проверки')}\\n"
+              f"{topics_mark} Форум-темы — <b>{len(topic_ids)}/{len(forum_topics.TOPIC_NAMES)}</b>\\n"
+              f"{scheduler_mark} Планировщик — {'активен · ' + str(len(jobs)) + ' задач' if scheduler_ok else 'НЕ ЗАПУЩЕН'}\\n\\n"
+              f"<b>АВТОМАТИЗАЦИЯ</b>\\n"
+              f"• RSI / SMA — почасовое расписание · /alerts\\n"
+              f"• Track Record — проверка результатов каждый час\\n"
+              f"• Telegram-мониторинг — каждые 5 мин, если настроен TG_*\\n\\n"
+              f"<b>ИНТЕГРАЦИИ</b>\\n"
+              f"• AI — <code>{GEMINI_MODEL}</code> → <code>{GEMINI_FALLBACK_MODEL}</code> → Groq\\n"
+              f"• Новости — RSS · Wikimedia · Google CSE · Pexels / Pixabay\\n"
+              f"• Графики — Finviz / yfinance · изображения — assets/stubs/\\n"
+              f"🟡 Внешние API — не вызывались в рамках startup-check\\n\\n"
+              f"<b>ЗАДАЧИ ПО РАСПИСАНИЮ</b>\\n"
+              f"• COT / CFTC — Пт, 23:00 МСК · /cot\\n"
+              f"• 13F / SEC EDGAR — Пн, 10:00 МСК · /13f\\n\\n"
+              f"<i>OK = проверено сейчас · 🟡 = настроено / не проверено · 🔴 = проверка не пройдена</i>"
+          )
+          try:
+              await startup_message.edit_text(
+                  text=final_msg, parse_mode="HTML", disable_web_page_preview=True
+              )
+              logger.info("Startup diagnostic updated. DB=%s, Redis=%s, scheduler=%s/%s jobs",
+                          db_final_ok, redis_final_ok, scheduler_ok, len(jobs))
+          except Exception as exc:
+              logger.warning("Could not edit startup diagnostic message: %s", type(exc).__name__)
+
 
       try:
           if application.updater:
