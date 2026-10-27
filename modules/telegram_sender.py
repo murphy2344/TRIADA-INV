@@ -46,8 +46,8 @@ async def _download_remote_image(url: str) -> bytes:
 
             data = bytes(chunks)
             signatures = (
-                data.startswith(b"\\x89PNG\\r\\n\\x1a\\n"),
-                data.startswith(b"\\xff\\xd8\\xff"),
+                data.startswith(b"\x89PNG\r\n\x1a\n"),
+                data.startswith(b"\xff\xd8\xff"),
                 data.startswith((b"GIF87a", b"GIF89a")),
                 len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP",
             )
