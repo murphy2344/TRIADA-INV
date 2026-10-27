@@ -1,5 +1,7 @@
 import json
 import logging
+import os
+import re
 import time
 from urllib.parse import quote
 
@@ -15,11 +17,16 @@ from config.config import (
 )
 
 logger = logging.getLogger(__name__)
-_PRIMARY_RATE_LIMITED_UNTIL = 0.0
 GEMINI_API_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
     "{model}:generateContent"
 )
+
+# Keep the production chain short: one Gemini attempt, then two Groq models.
+# A provider failure advances to the next model immediately; no hidden SDK retries.
+PRIMARY_GEMINI_MODEL = os.getenv("TRIADA_AI_PRIMARY_MODEL", GEMINI_MODEL or "gemini-3.8-flash").strip()
+PRIMARY_GROQ_MODEL = os.getenv("TRIADA_AI_FALLBACK_MODEL", GROQ_MODEL or "openai/gpt-oss-120b").strip()
+SECONDARY_GROQ_MODEL = os.getenv("TRIADA_AI_LAST_RESORT_MODEL", GROQ_FALLBACK_MODEL or "openai/gpt-oss-20b").strip()
 
 SYSTEM_PROMPT = """You are a senior global financial markets analyst for TRIADA INVESTING.
 Return ONLY valid JSON, with no markdown or text outside JSON.
@@ -66,9 +73,16 @@ ANALYSIS_SCHEMA = """{
   "actual": "actual value if applicable"
 }"""
 
+# Approximate published Groq token prices, USD per 1M tokens. Gemini costs are
+# deliberately not guessed: its price depends on model, tier, and current pricing.
+GROQ_PRICE_PER_MILLION = {
+    "openai/gpt-oss-120b": (0.15, 0.60),
+    "openai/gpt-oss-20b": (0.075, 0.30),
+}
+
 
 def _normalize_result(result: dict, category: str) -> dict:
-    """Map the new AI contract to the existing pipeline contract."""
+    """Map the AI contract to the existing pipeline contract."""
     if result.get("skip") is True:
         return {"relevant": False, "post_type": "skip"}
 
@@ -126,68 +140,140 @@ def _normalize_result(result: dict, category: str) -> dict:
     }
 
 
-def _gemini_models() -> list[str]:
-    # Gemini 2.5 models were retired by Google in October 2026. Prefer current
-    # models even if Render still has the old model IDs in environment vars.
-    candidates = [
-        "gemini-3.8-flash",
-        "gemini-3.5-flash-lite",
-        GEMINI_MODEL,
-        GEMINI_FALLBACK_MODEL,
-    ]
-    return list(dict.fromkeys(model.strip() for model in candidates if model and model.strip()))
+def _usage_log(provider: str, model: str, started: float, usage: dict | None,
+               status: str, attempt: int, error_code: str = "") -> None:
+    elapsed_ms = round((time.monotonic() - started) * 1000)
+    usage = usage or {}
+    input_tokens = int(usage.get("promptTokenCount") or usage.get("prompt_tokens") or 0)
+    output_tokens = int(usage.get("candidatesTokenCount") or usage.get("completion_tokens") or 0)
+    total_tokens = int(usage.get("totalTokenCount") or usage.get("total_tokens") or input_tokens + output_tokens)
+    cost = None
+    prices = GROQ_PRICE_PER_MILLION.get(model) if provider == "Groq" else None
+    if prices and (input_tokens or output_tokens):
+        cost = round((input_tokens * prices[0] + output_tokens * prices[1]) / 1_000_000, 8)
+    logger.info(
+        "AI_USAGE provider=%s model=%s status=%s attempt=%s latency_ms=%s "
+        "input_tokens=%s output_tokens=%s total_tokens=%s estimated_cost_usd=%s error_code=%s",
+        provider, model, status, attempt, elapsed_ms, input_tokens, output_tokens,
+        total_tokens, cost if cost is not None else "n/a", error_code or "-",
+    )
 
 
-def _analyze_with_gemini(prompt: str, category: str) -> dict | None:
-    if not GEMINI_API_KEY:
+def _http_error_code(exc: Exception) -> str:
+    response = getattr(exc, "response", None)
+    if response is not None:
+        return str(getattr(response, "status_code", "HTTP_ERROR"))
+    status = getattr(exc, "status_code", None)
+    if status:
+        return str(status)
+    text = str(exc).lower()
+    if "timeout" in text or "timed out" in text:
+        return "TIMEOUT"
+    if "rate_limit" in text or "rate limit" in text or "429" in text:
+        return "429"
+    return type(exc).__name__
+
+
+def _analyze_gemini(prompt: str, category: str) -> dict | None:
+    if not GEMINI_API_KEY or not PRIMARY_GEMINI_MODEL:
+        return None
+    started = time.monotonic()
+    usage = {}
+    try:
+        response = requests.post(
+            GEMINI_API_URL.format(model=quote(PRIMARY_GEMINI_MODEL, safe="")),
+            headers={"x-goog-api-key": GEMINI_API_KEY, "Content-Type": "application/json"},
+            json={
+                "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature": 0.2,
+                    "maxOutputTokens": 2500,
+                    "responseMimeType": "application/json",
+                },
+            },
+            timeout=18,
+        )
+        response.raise_for_status()
+        data = response.json()
+        usage = data.get("usageMetadata") or {}
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+        result = _normalize_result(json.loads(text), category)
+        _usage_log("Gemini", PRIMARY_GEMINI_MODEL, started, usage, "success", 1)
+        logger.info("AI_RESULT provider=Gemini model=%s relevant=%s", PRIMARY_GEMINI_MODEL, result.get("relevant"))
+        return result
+    except Exception as exc:
+        code = _http_error_code(exc)
+        _usage_log("Gemini", PRIMARY_GEMINI_MODEL, started, usage, "error", 1, code)
+        logger.warning("AI_FAILOVER provider=Gemini model=%s error_code=%s detail=%s",
+                       PRIMARY_GEMINI_MODEL, code, str(exc)[:250])
         return None
 
-    for model in _gemini_models():
-        try:
-            response = requests.post(
-                GEMINI_API_URL.format(model=quote(model, safe="")),
-                headers={
-                    "x-goog-api-key": GEMINI_API_KEY,
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "system_instruction": {
-                        "parts": [{"text": SYSTEM_PROMPT}]
-                    },
-                    "contents": [
-                        {"role": "user", "parts": [{"text": prompt}]}
-                    ],
-                    "generationConfig": {
-                        "temperature": 0.3,
-                        "maxOutputTokens": 8192,
-                        "responseMimeType": "application/json",
-                    },
-                },
-                timeout=30,
-            )
-            response.raise_for_status()
-            data = response.json()
-            text = data["candidates"][0]["content"]["parts"][0]["text"]
-            result = _normalize_result(json.loads(text), category)
-            logger.info(
-                "AI (Gemini/%s): relevant=%s, title=%s",
-                model, result.get("relevant"), result.get("title", "")[:40],
-            )
-            return result
-        except Exception as exc:
-            response = getattr(exc, "response", None)
-            if response is not None:
-                body = (getattr(response, "text", "") or "")[:500].replace("\\n", " ")
-                logger.warning(
-                    "Gemini error (%s): HTTP %s; %s; response=%s",
-                    model, getattr(response, "status_code", "?"), exc, body,
-                )
-            else:
-                logger.warning("Gemini error (%s): %s", model, exc)
-    return None
+
+def _analyze_groq(prompt: str, category: str, model: str, attempt: int) -> dict | None:
+    if not GROQ_API_KEY or not model:
+        return None
+    started = time.monotonic()
+    usage = {}
+    try:
+        client = Groq(api_key=GROQ_API_KEY, max_retries=0, timeout=18)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            max_tokens=1800,
+            response_format={"type": "json_object"},
+        )
+        raw_usage = getattr(response, "usage", None)
+        if raw_usage:
+            usage = {
+                "prompt_tokens": getattr(raw_usage, "prompt_tokens", 0),
+                "completion_tokens": getattr(raw_usage, "completion_tokens", 0),
+                "total_tokens": getattr(raw_usage, "total_tokens", 0),
+            }
+        result = _normalize_result(json.loads(response.choices[0].message.content), category)
+        _usage_log("Groq", model, started, usage, "success", attempt)
+        logger.info("AI_RESULT provider=Groq model=%s relevant=%s", model, result.get("relevant"))
+        return result
+    except Exception as exc:
+        code = _http_error_code(exc)
+        _usage_log("Groq", model, started, usage, "error", attempt, code)
+        logger.warning("AI_FAILOVER provider=Groq model=%s error_code=%s detail=%s",
+                       model, code, str(exc)[:250])
+        return None
+
+
+def _obviously_nonfinancial(text: str) -> bool:
+    """Conservative zero-token gate for unmistakable non-market headlines."""
+    lowered = (text or "").lower()
+    finance_terms = (
+        "stock", "shares", "market", "investor", "revenue", "earnings", "profit",
+        "inflation", "rate", "fed", "ecb", "central bank", "bond", "oil", "gold",
+        "bitcoin", "crypto", " доллар", "акци", "бирж", "рын", "инвест",
+        "выруч", "прибыл", "инфляц", "ставк", "центробанк", "облигац", "нефт",
+        "золот", "биткоин", "криптовалют", "рубл", "евро", "доллар", "пошлин",
+        "санкц", "экспорт", "импорт", "gdp", "cpi", "pmi", "ipo", "merger",
+    )
+    nonmarket_terms = (
+        "football match", "soccer match", "basketball game", "tennis match",
+        "movie premiere", "celebrity wedding", "reality show",
+        "футбольный матч", "баскетбольный матч", "теннисный матч",
+        "премьера фильма", "свадьба актёра", "свадьба актера",
+        "новый сезон сериала", "победил в матче", "результат матча",
+    )
+    return any(term in lowered for term in nonmarket_terms) and not any(
+        term in lowered for term in finance_terms
+    )
 
 
 def analyze(raw_text: str, category: str = "BREAKING") -> dict | None:
+    if _obviously_nonfinancial(raw_text):
+        logger.info("AI_PREFILTER skipped obvious non-financial item category=%s", category)
+        return {"relevant": False, "post_type": "skip"}
+
     if not GEMINI_API_KEY and not GROQ_API_KEY:
         logger.error("Neither GEMINI_API_KEY nor GROQ_API_KEY is set")
         return None
@@ -198,78 +284,68 @@ def analyze(raw_text: str, category: str = "BREAKING") -> dict | None:
 Верни JSON строго по схеме:
 {ANALYSIS_SCHEMA}"""
 
-    # Prefer the user's Gemini key. It supports both old standard keys and
-    # new AI Studio authorization keys through x-goog-api-key.
-    gemini_result = _analyze_with_gemini(prompt, category)
-    if gemini_result is not None:
-        return gemini_result
-
-    if not GROQ_API_KEY:
-        return None
-
-    global _PRIMARY_RATE_LIMITED_UNTIL
-    client = Groq(api_key=GROQ_API_KEY, max_retries=0)
-    # Keep the current production IDs in the retry list as well. This makes
-    # the bot recover if Render still has old GROQ_MODEL overrides saved.
-    models = list(dict.fromkeys([
-        GROQ_MODEL,
-        GROQ_FALLBACK_MODEL,
-        "llama-3.3-70b-versatile",
-        "openai/gpt-oss-120b",
-        "openai/gpt-oss-20b",
-    ]))
-    if time.monotonic() < _PRIMARY_RATE_LIMITED_UNTIL:
-        # Prefer a different production model while the primary quota cools down.
-        models = list(dict.fromkeys([
-            "llama-3.3-70b-versatile",
-            GROQ_FALLBACK_MODEL,
-            "openai/gpt-oss-20b",
-            "openai/gpt-oss-120b",
-        ]))
-
-    for model in models:
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.3,
-                max_tokens=2200,
-                response_format={"type": "json_object"},
-            )
-            result = _normalize_result(
-                json.loads(response.choices[0].message.content), category
-            )
-            logger.info(
-                "AI (%s): relevant=%s, title=%s",
-                model, result.get("relevant"), result.get("title", "")[:40],
-            )
+    # Three bounded attempts, no nested SDK retries: Gemini -> Groq 120B -> Groq 20B.
+    # If Gemini is not configured, the Groq models become attempts 1 and 2.
+    if GEMINI_API_KEY:
+        result = _analyze_gemini(prompt, category)
+        if result is not None:
             return result
-        except Exception as exc:
-            error_text = str(exc)
-            if "429" in error_text or "rate_limit" in error_text.lower():
-                # Quotas are model-specific in many plans. Mark the primary
-                # as cooling down, then try the next configured production model.
-                _PRIMARY_RATE_LIMITED_UNTIL = time.monotonic() + 45 * 60
-                logger.warning(
-                    "Groq rate limit on %s; trying the next configured model",
-                    model,
-                )
-                continue
-            logger.error("Groq error (%s): %s", model, exc)
+
+    groq_models = list(dict.fromkeys(
+        model for model in (PRIMARY_GROQ_MODEL, SECONDARY_GROQ_MODEL)
+        if model and model.strip()
+    ))
+    for attempt, model in enumerate(groq_models, start=2 if GEMINI_API_KEY else 1):
+        result = _analyze_groq(prompt, category, model, attempt)
+        if result is not None:
+            return result
+
+    logger.error("AI_EXHAUSTED category=%s providers_attempted=%s",
+                 category, int(bool(GEMINI_API_KEY)) + len(groq_models))
     return None
+
+
+def _title_key(title: str) -> str:
+    title = (title or "").lower().strip()
+    title = re.sub(r"https?://\S+", " ", title)
+    title = re.sub(r"[^a-zа-яё0-9 ]", " ", title)
+    return re.sub(r"\s+", " ", title).strip()
+
+
+def _title_tokens(title: str) -> set[str]:
+    stop = {"это", "как", "что", "для", "при", "после", "перед", "the", "and", "with", "from"}
+    return {word for word in _title_key(title).split() if len(word) > 2 and word not in stop}
+
+
+def _is_local_duplicate(title: str, previous: list[tuple[str, set[str]]]) -> bool:
+    key = _title_key(title)
+    tokens = _title_tokens(title)
+    if not key:
+        return True
+    for old_key, old_tokens in previous:
+        if key == old_key:
+            return True
+        if tokens and old_tokens:
+            overlap = len(tokens & old_tokens) / len(tokens | old_tokens)
+            if overlap >= 0.82:
+                return True
+    return False
 
 
 def analyze_batch(news_items: list, category: str = "HOURLY") -> list:
     results = []
+    seen: list[tuple[str, set[str]]] = []
     for item in news_items:
-        text = f"{item['title']}. {item.get('summary', '')}"
+        title = str(item.get("title") or "")
+        if _is_local_duplicate(title, seen):
+            logger.info("AI_PREFILTER skipped duplicate title=%s", title[:100])
+            continue
+        seen.append((_title_key(title), _title_tokens(title)))
+        text = f"{title}. {item.get('summary', '')}"
         analysis = analyze(text, category)
         if analysis and analysis.get("relevant") is not False:
-            analysis["_source"] = item["source"]
-            analysis["_url"] = item["url"]
-            analysis["_raw_title"] = item["title"]
+            analysis["_source"] = item.get("source", "")
+            analysis["_url"] = item.get("url", "")
+            analysis["_raw_title"] = title
             results.append(analysis)
     return results
