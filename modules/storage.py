@@ -391,7 +391,7 @@ async def clear_stale_alerts(cooldown_hours: int = 24):
     cutoff = datetime.datetime.utcnow() - datetime.timedelta(hours=cooldown_hours)
     async with db_compat.connect(DB_PATH) as db:
         async with db.execute(
-            "SELECT key, value FROM bot_meta WHERE key LIKE 'ta_alert:%'"
+            "SELECT key, value FROM bot_meta WHERE key LIKE ?", ("ta_alert:%",)
         ) as cursor:
             rows = await cursor.fetchall()
         for key, value in rows:
