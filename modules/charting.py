@@ -4,6 +4,7 @@ import os
 import re
 import time
 import requests
+import threading
 from config.config import CHART_IMG_API_KEY
 
 logger = logging.getLogger(__name__)
@@ -192,15 +193,83 @@ def _chart_img(ticker: str) -> bytes | None:
     return None
 
 
-def get_current_price(ticker_raw: str) -> float | None:
+# Yahoo Finance sometimes rate-limits or returns empty history while its crumb
+# endpoint is unavailable. A short process-wide cooldown prevents every scheduled
+# signal from repeating the same failing request. It never fabricates prices.
+_YFINANCE_COOLDOWN_UNTIL = 0.0
+_YFINANCE_COOLDOWN_REASON = ""
+_YFINANCE_COOLDOWN_LOGGED = False
+_YFINANCE_COOLDOWN_SECONDS = 120
+_YFINANCE_RATE_LIMIT_SECONDS = 600
+_YFINANCE_LOCK = threading.Lock()
+
+
+def _fetch_yfinance_history(ticker: str, period: str, interval: str | None = None):
+    """Fetch Yahoo history with a shared cooldown on provider failures."""
+    global _YFINANCE_COOLDOWN_UNTIL, _YFINANCE_COOLDOWN_REASON
+    global _YFINANCE_COOLDOWN_LOGGED
+
     import yfinance as yf
+
+    with _YFINANCE_LOCK:
+        now = time.monotonic()
+        if now < _YFINANCE_COOLDOWN_UNTIL:
+            if not _YFINANCE_COOLDOWN_LOGGED:
+                logger.warning(
+                    "Yahoo Finance requests paused for %.0fs after provider failure (%s)",
+                    _YFINANCE_COOLDOWN_UNTIL - now,
+                    _YFINANCE_COOLDOWN_REASON or "unavailable data",
+                )
+                _YFINANCE_COOLDOWN_LOGGED = True
+            return None
+
+        try:
+            history_kwargs = {"period": period}
+            if interval:
+                history_kwargs["interval"] = interval
+            data = yf.Ticker(ticker).history(**history_kwargs)
+        except Exception as exc:
+            message = str(exc).lower()
+            rate_limited = any(
+                token in message
+                for token in ("429", "401", "403", "crumb", "rate limit", "too many requests")
+            )
+            cooldown = _YFINANCE_RATE_LIMIT_SECONDS if rate_limited else _YFINANCE_COOLDOWN_SECONDS
+            _YFINANCE_COOLDOWN_UNTIL = time.monotonic() + cooldown
+            _YFINANCE_COOLDOWN_REASON = "rate/auth limit" if rate_limited else type(exc).__name__
+            _YFINANCE_COOLDOWN_LOGGED = False
+            logger.warning(
+                "Yahoo Finance history failed for %s (%s); cooling down for %ss",
+                ticker, _YFINANCE_COOLDOWN_REASON, cooldown,
+            )
+            return None
+
+        if data is None or data.empty:
+            # Empty results are common when Yahoo's crumb endpoint is failing;
+            # briefly back off rather than issuing one request per signal.
+            _YFINANCE_COOLDOWN_UNTIL = time.monotonic() + _YFINANCE_COOLDOWN_SECONDS
+            _YFINANCE_COOLDOWN_REASON = "empty history"
+            _YFINANCE_COOLDOWN_LOGGED = False
+            logger.warning(
+                "Yahoo Finance returned empty history for %s; cooling down for %ss",
+                ticker, _YFINANCE_COOLDOWN_SECONDS,
+            )
+            return None
+
+        _YFINANCE_COOLDOWN_UNTIL = 0.0
+        _YFINANCE_COOLDOWN_REASON = ""
+        _YFINANCE_COOLDOWN_LOGGED = False
+        return data
+
+
+def get_current_price(ticker_raw: str) -> float | None:
     """Текущая цена актива — для трек-рекорда рекомендаций."""
     ticker = resolve_ticker(ticker_raw)
     if not ticker:
         return None
     try:
-        data = yf.Ticker(ticker).history(period="1d")
-        if data.empty:
+        data = _fetch_yfinance_history(ticker, period="1d")
+        if data is None or "Close" not in data.columns or data["Close"].dropna().empty:
             return None
         return float(data["Close"].iloc[-1])
     except Exception as e:
@@ -215,7 +284,6 @@ def get_price_metrics(
     recommendation: str = "long",
 ) -> dict | None:
     """Return PnL and adverse price movement only since a signal was posted."""
-    import yfinance as yf
     from datetime import datetime, timezone
 
     ticker = resolve_ticker(ticker_raw)
@@ -225,7 +293,7 @@ def get_price_metrics(
         # Signals are checked after horizons of at most several days. One month
         # of hourly candles covers the period while avoiding a year of unrelated
         # price history in the drawdown calculation.
-        data = yf.Ticker(ticker).history(period="1mo", interval="1h")
+        data = _fetch_yfinance_history(ticker, period="1mo", interval="1h")
         if data is None or data.empty or "Close" not in data.columns:
             return None
 
