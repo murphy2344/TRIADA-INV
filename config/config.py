@@ -56,15 +56,15 @@ DB_PATH = "data/bot.db"
 
 # Глобальные финансовые и деловые RSS-ленты.
 RSS_FEEDS = {
-    "Reuters Business": "https://feeds.reuters.com/reuters/businessNews",
+    "Reuters Business": "https://news.google.com/rss/search?q=when:24h+site:reuters.com/business&ceid=US:en&hl=en-US&gl=US",
     "Investing.com":    "https://www.investing.com/rss/news.rss",
     "ForexLive":        "https://www.forexlive.com/feed/news",
     "CNBC Markets":     "https://www.cnbc.com/id/100003114/device/rss/rss.html",
     "WSJ Business":     "https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml",
     "Bloomberg Markets": "https://feeds.bloomberg.com/markets/news.rss",
     "Bloomberg Politics": "https://feeds.bloomberg.com/politics/news.rss",
-    "Reuters World":    "http://feeds.reuters.com/Reuters/worldNews",
-    "Reuters Money":    "http://feeds.reuters.com/news/wealth",
+    "Reuters World":    "https://news.google.com/rss/search?q=when:24h+site:reuters.com/world&ceid=US:en&hl=en-US&gl=US",
+    "Reuters Money":    "https://news.google.com/rss/search?q=when:24h+site:reuters.com/business/finance&ceid=US:en&hl=en-US&gl=US",
     "MarketWatch":      "https://www.marketwatch.com/rss/topstories",
     "Financial Times":  "https://www.ft.com/?format=rss",
     "Abnormal Returns": "https://abnormalreturns.com/feed",
