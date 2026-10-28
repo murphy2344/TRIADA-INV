@@ -652,7 +652,11 @@ async def check_recommendations(bot=None, admin_id: str = None):
     results = []
     for rec in pending:
         metrics = await asyncio.to_thread(
-            charting.get_price_metrics, rec["ticker"], rec["price_at_post"]
+            charting.get_price_metrics,
+            rec["ticker"],
+            rec["price_at_post"],
+            rec.get("posted_at"),
+            rec.get("recommendation", "long"),
         )
         if not metrics:
             logger.warning(
