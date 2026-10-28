@@ -207,30 +207,58 @@ def get_current_price(ticker_raw: str) -> float | None:
         return None
 
 
-def get_price_metrics(ticker_raw: str, entry_price: float) -> dict | None:
+def get_price_metrics(
+    ticker_raw: str,
+    entry_price: float,
+    entry_time: str | None = None,
+    recommendation: str = "long",
+) -> dict | None:
+    """Return PnL and adverse price movement only since a signal was posted."""
     import yfinance as yf
-    """Return current PnL and observed drawdown for a signal check."""
+    from datetime import datetime, timezone
+
     ticker = resolve_ticker(ticker_raw)
     if not ticker or not entry_price:
         return None
     try:
-        data = yf.Ticker(ticker).history(period="1y", interval="1d")
+        # Signals are checked after horizons of at most several days. One month
+        # of hourly candles covers the period while avoiding a year of unrelated
+        # price history in the drawdown calculation.
+        data = yf.Ticker(ticker).history(period="1mo", interval="1h")
         if data is None or data.empty or "Close" not in data.columns:
             return None
-        closes = [float(value) for value in data["Close"].dropna().tolist()]
-        if not closes:
+
+        if entry_time:
+            start = datetime.fromisoformat(str(entry_time).replace("Z", "+00:00"))
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=timezone.utc)
+            if data.index.tz is None:
+                data.index = data.index.tz_localize("UTC")
+            else:
+                data.index = data.index.tz_convert("UTC")
+            data = data[data.index >= start.astimezone(timezone.utc)]
+        if data.empty:
+            logger.warning("get_price_metrics: no candles since signal entry for %s", ticker)
             return None
-        current = closes[-1]
-        peak = closes[0]
-        max_drawdown = 0.0
-        for value in closes:
-            peak = max(peak, value)
-            if peak:
-                max_drawdown = min(max_drawdown, (value - peak) / peak * 100)
+
+        closes = data["Close"].dropna()
+        if closes.empty:
+            return None
+        current = float(closes.iloc[-1])
+        lows = data["Low"] if "Low" in data.columns else data["Close"]
+        highs = data["High"] if "High" in data.columns else data["Close"]
+        if str(recommendation).lower() == "short":
+            # Negative values represent adverse movement for either direction.
+            adverse_moves = [(entry_price - float(value)) / entry_price * 100
+                             for value in highs.dropna().tolist()]
+        else:
+            adverse_moves = [(float(value) - entry_price) / entry_price * 100
+                             for value in lows.dropna().tolist()]
+        max_adverse = min([0.0, *adverse_moves])
         return {
             "price_after": current,
             "pnl_percent": (current - entry_price) / entry_price * 100,
-            "max_drawdown_percent": max_drawdown,
+            "max_drawdown_percent": max_adverse,
         }
     except Exception as exc:
         logger.error("get_price_metrics error (%s): %s", ticker, exc)
