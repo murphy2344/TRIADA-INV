@@ -3,10 +3,6 @@ import logging
 import re
 import time
 import requests
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import yfinance as yf
 from config.config import CHART_IMG_API_KEY
 
 logger = logging.getLogger(__name__)
@@ -93,6 +89,10 @@ def _finviz_chart(ticker: str) -> bytes | None:
 
 
 def _yfinance_chart(ticker: str, period: str = "5d") -> bytes | None:
+    # Heavy optional libraries are imported only when a chart is actually needed.
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
     """Fallback: свой график в стиле Apple Stocks —
     тёмный фон, крупная цена/% сверху, тонкая area-заливка под линией."""
     sparkline = get_sparkline_data(ticker, period)
@@ -192,6 +192,7 @@ def _chart_img(ticker: str) -> bytes | None:
 
 
 def get_current_price(ticker_raw: str) -> float | None:
+    import yfinance as yf
     """Текущая цена актива — для трек-рекорда рекомендаций."""
     ticker = resolve_ticker(ticker_raw)
     if not ticker:
@@ -207,6 +208,7 @@ def get_current_price(ticker_raw: str) -> float | None:
 
 
 def get_price_metrics(ticker_raw: str, entry_price: float) -> dict | None:
+    import yfinance as yf
     """Return current PnL and observed drawdown for a signal check."""
     ticker = resolve_ticker(ticker_raw)
     if not ticker or not entry_price:
@@ -236,6 +238,7 @@ def get_price_metrics(ticker_raw: str, entry_price: float) -> dict | None:
 
 
 def get_sparkline_data(ticker_raw: str, period: str = "5d") -> dict | None:
+    import yfinance as yf
     """Данные для мини-графика (sparkline) в Apple-стиле."""
     ticker = resolve_ticker(ticker_raw)
     if not ticker:
