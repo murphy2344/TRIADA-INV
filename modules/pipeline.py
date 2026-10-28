@@ -109,6 +109,7 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
 
     async def fail(stage: str, exc) -> bool:
         detail = f"{type(exc).__name__}: {exc}" if isinstance(exc, Exception) else str(exc)
+        await storage.increment_error_stats()
         logger.exception("BREAKING failed at %s for %s: %s", stage, title[:80], detail)
         if admin_id:
             await telegram_sender.notify_admin(
@@ -189,30 +190,8 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
 
 async def run_breaking(bot, admin_id: str = None):
     news_list = await asyncio.to_thread(news_sources.fetch_breaking_news, 2)
-
-    # A single two-minute poll can see the same event from several RSS feeds.
-    # Filter within this batch before calling AI and cap work per poll to keep
-    # memory/API usage predictable on Render's 512 MiB free instance.
-    unique_items = []
-    seen_titles = []
-    for item in news_list:
-        title = str(item.get("title") or "")
-        if any(dedup._similarity(title, old_title) >= 0.6 for old_title in seen_titles):
-            logger.info("BREAKING prefilter duplicate title=%s", title[:100])
-            continue
-        unique_items.append(item)
-        seen_titles.append(title)
-        if len(unique_items) >= 2:
-            break
-
-    if len(news_list) > len(unique_items):
-        logger.info(
-            "BREAKING batch bounded: fetched=%d selected=%d",
-            len(news_list), len(unique_items),
-        )
-
     posted = 0
-    for item in unique_items:
+    for item in news_list:
         if await _publish_breaking_item(bot, item, admin_id):
             posted += 1
     return posted
