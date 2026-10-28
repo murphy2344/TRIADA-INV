@@ -1,7 +1,6 @@
 """Background alert checker - runs every 5 minutes to check price alerts."""
 import asyncio
 import logging
-import yfinance as yf
 from modules import storage, smart_alerts
 
 logger = logging.getLogger(__name__)
@@ -140,6 +139,10 @@ async def _check_smart_alerts(bot, alerts: list) -> int:
 
 def _fetch_prices(tickers: list) -> dict:
     """Fetch current prices for multiple tickers."""
+    # yfinance pulls in pandas and other heavy dependencies; only load it when
+    # the bot actually has user price alerts to check.
+    import yfinance as yf
+
     result = {}
     for ticker in tickers:
         try:
