@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import time
+import threading
 from urllib.parse import quote
 
 import requests
@@ -27,6 +28,41 @@ GEMINI_API_URL = (
 PRIMARY_GEMINI_MODEL = os.getenv("TRIADA_AI_PRIMARY_MODEL", GEMINI_MODEL or "gemini-3.8-flash").strip()
 PRIMARY_GROQ_MODEL = os.getenv("TRIADA_AI_FALLBACK_MODEL", GROQ_MODEL or "openai/gpt-oss-120b").strip()
 SECONDARY_GROQ_MODEL = os.getenv("TRIADA_AI_LAST_RESORT_MODEL", GROQ_FALLBACK_MODEL or "openai/gpt-oss-20b").strip()
+
+# Avoid repeatedly calling providers whose quota is already exhausted.
+# Cooldowns are process-local and automatically expire; no external service needed.
+_PROVIDER_COOLDOWNS: dict[tuple[str, str], float] = {}
+_PROVIDER_COOLDOWN_LOCK = threading.Lock()
+
+
+def _provider_is_cooling_down(provider: str, model: str) -> bool:
+    key = (provider, model)
+    now = time.monotonic()
+    with _PROVIDER_COOLDOWN_LOCK:
+        until = _PROVIDER_COOLDOWNS.get(key, 0.0)
+        if until <= now:
+            _PROVIDER_COOLDOWNS.pop(key, None)
+            return False
+        return True
+
+
+def _set_provider_cooldown(provider: str, model: str, exc: Exception, code: str) -> None:
+    message = str(exc).lower()
+    if code == "429" or "429" in message or "rate limit" in message or "quota" in message:
+        # Daily token quota errors should not be retried every news cycle.
+        seconds = 6 * 60 * 60 if ("tokens per day" in message or "tpd" in message) else 10 * 60
+    elif code == "503" or "503" in message or "service unavailable" in message:
+        seconds = 2 * 60
+    else:
+        return
+    key = (provider, model)
+    with _PROVIDER_COOLDOWN_LOCK:
+        _PROVIDER_COOLDOWNS[key] = time.monotonic() + seconds
+    logger.warning(
+        "AI_PROVIDER_COOLDOWN provider=%s model=%s seconds=%d error_code=%s",
+        provider, model, seconds, code,
+    )
+
 
 SYSTEM_PROMPT = """You are a senior global financial markets analyst for TRIADA INVESTING.
 Return ONLY valid JSON, with no markdown or text outside JSON.
@@ -204,6 +240,7 @@ def _analyze_gemini(prompt: str, category: str) -> dict | None:
         return result
     except Exception as exc:
         code = _http_error_code(exc)
+        _set_provider_cooldown("Gemini", PRIMARY_GEMINI_MODEL, exc, code)
         _usage_log("Gemini", PRIMARY_GEMINI_MODEL, started, usage, "error", 1, code)
         logger.warning("AI_FAILOVER provider=Gemini model=%s error_code=%s detail=%s",
                        PRIMARY_GEMINI_MODEL, code, str(exc)[:250])
@@ -240,6 +277,7 @@ def _analyze_groq(prompt: str, category: str, model: str, attempt: int) -> dict 
         return result
     except Exception as exc:
         code = _http_error_code(exc)
+        _set_provider_cooldown("Groq", model, exc, code)
         _usage_log("Groq", model, started, usage, "error", attempt, code)
         logger.warning("AI_FAILOVER provider=Groq model=%s error_code=%s detail=%s",
                        model, code, str(exc)[:250])
@@ -287,15 +325,21 @@ def analyze(raw_text: str, category: str = "BREAKING") -> dict | None:
     # Three bounded attempts, no nested SDK retries: Gemini -> Groq 120B -> Groq 20B.
     # If Gemini is not configured, the Groq models become attempts 1 and 2.
     if GEMINI_API_KEY:
-        result = _analyze_gemini(prompt, category)
-        if result is not None:
-            return result
+        if _provider_is_cooling_down("Gemini", PRIMARY_GEMINI_MODEL):
+            logger.info("AI_PROVIDER_SKIPPED provider=Gemini model=%s reason=cooldown", PRIMARY_GEMINI_MODEL)
+        else:
+            result = _analyze_gemini(prompt, category)
+            if result is not None:
+                return result
 
     groq_models = list(dict.fromkeys(
         model for model in (PRIMARY_GROQ_MODEL, SECONDARY_GROQ_MODEL)
         if model and model.strip()
     ))
     for attempt, model in enumerate(groq_models, start=2 if GEMINI_API_KEY else 1):
+        if _provider_is_cooling_down("Groq", model):
+            logger.info("AI_PROVIDER_SKIPPED provider=Groq model=%s reason=cooldown", model)
+            continue
         result = _analyze_groq(prompt, category, model, attempt)
         if result is not None:
             return result
