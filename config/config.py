@@ -68,7 +68,7 @@ RSS_FEEDS = {
     "MarketWatch":      "https://www.marketwatch.com/rss/topstories",
     "Financial Times":  "https://www.ft.com/?format=rss",
     "Abnormal Returns": "https://abnormalreturns.com/feed",
-    "Ritholtz":         "https://ritholtz.com/feed",
-    "Barron's":         "https://www.barrons.com/rss",
+    "Ritholtz via Google News": "https://news.google.com/rss/search?q=when:24h+site:ritholtz.com&ceid=US:en&hl=en-US&gl=US",
+    "Barron's via Google News": "https://news.google.com/rss/search?q=when:24h+site:barrons.com&ceid=US:en&hl=en-US&gl=US",
     "Seeking Alpha":    "https://seekingalpha.com/feed.xml",
 }
