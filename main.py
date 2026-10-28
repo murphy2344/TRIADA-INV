@@ -1007,6 +1007,15 @@ async def main():
               await asyncio.sleep(2)
 
           if not polling_lock_acquired:
+              # application.start() has already run, but the updater has not.
+              # Stop the application before leaving the async context so its
+              # __aexit__ does not raise a second "Application is still running"
+              # error and obscure the actual lock-contention failure.
+              logger.error(
+                  "Telegram polling lock is busy for 120s; stopping this instance "
+                  "without starting a second getUpdates loop"
+              )
+              await application.stop()
               raise RuntimeError(
                   "Telegram polling lock is busy for 120s; refusing to start a second getUpdates loop"
               )
