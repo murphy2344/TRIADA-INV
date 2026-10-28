@@ -205,7 +205,7 @@ _YFINANCE_LOCK = threading.Lock()
 
 
 def _fetch_yfinance_history(ticker: str, period: str, interval: str | None = None):
-    """Fetch Yahoo history with a shared cooldown on provider failures."""
+    """Fetch Yahoo history and honor cooldowns even when yfinance only logs a crumb 429."""
     global _YFINANCE_COOLDOWN_UNTIL, _YFINANCE_COOLDOWN_REASON
     global _YFINANCE_COOLDOWN_LOGGED
 
@@ -223,6 +223,21 @@ def _fetch_yfinance_history(ticker: str, period: str, interval: str | None = Non
                 _YFINANCE_COOLDOWN_LOGGED = True
             return None
 
+        # yfinance may log a crumb 429 and still return partial data instead
+        # of raising. Capture that warning so every caller shares the cooldown.
+        class _CrumbRateLimitCapture(logging.Handler):
+            rate_limited = False
+
+            def emit(self, record):
+                message = record.getMessage().lower()
+                if "crumb" in message and any(
+                    token in message for token in ("429", "rate-limit", "rate limit", "rate limited")
+                ):
+                    self.rate_limited = True
+
+        yfinance_logger = logging.getLogger("yfinance")
+        crumb_capture = _CrumbRateLimitCapture(level=logging.WARNING)
+        yfinance_logger.addHandler(crumb_capture)
         try:
             history_kwargs = {"period": period}
             if interval:
@@ -243,10 +258,20 @@ def _fetch_yfinance_history(ticker: str, period: str, interval: str | None = Non
                 ticker, _YFINANCE_COOLDOWN_REASON, cooldown,
             )
             return None
+        finally:
+            yfinance_logger.removeHandler(crumb_capture)
+
+        if crumb_capture.rate_limited:
+            _YFINANCE_COOLDOWN_UNTIL = time.monotonic() + _YFINANCE_RATE_LIMIT_SECONDS
+            _YFINANCE_COOLDOWN_REASON = "crumb rate limit"
+            _YFINANCE_COOLDOWN_LOGGED = False
+            logger.warning(
+                "Yahoo Finance crumb rate limit detected for %s; cooling down for %ss",
+                ticker, _YFINANCE_RATE_LIMIT_SECONDS,
+            )
+            return None
 
         if data is None or data.empty:
-            # Empty results are common when Yahoo's crumb endpoint is failing;
-            # briefly back off rather than issuing one request per signal.
             _YFINANCE_COOLDOWN_UNTIL = time.monotonic() + _YFINANCE_COOLDOWN_SECONDS
             _YFINANCE_COOLDOWN_REASON = "empty history"
             _YFINANCE_COOLDOWN_LOGGED = False
@@ -260,7 +285,6 @@ def _fetch_yfinance_history(ticker: str, period: str, interval: str | None = Non
         _YFINANCE_COOLDOWN_REASON = ""
         _YFINANCE_COOLDOWN_LOGGED = False
         return data
-
 
 def get_current_price(ticker_raw: str) -> float | None:
     """Текущая цена актива — для трек-рекорда рекомендаций."""
