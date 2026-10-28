@@ -1,9 +1,13 @@
 import feedparser
 import hashlib
 import logging
+import requests
 from config.config import RSS_FEEDS
 
 logger = logging.getLogger(__name__)
+
+# Bound each RSS request so one stalled publisher cannot hold a worker indefinitely.
+RSS_TIMEOUT_SECONDS = 8
 
 def _make_id(url: str, title: str) -> str:
     return hashlib.md5(f"{url}{title}".encode()).hexdigest()
@@ -44,7 +48,15 @@ def fetch_news(limit_per_feed: int = 3) -> list:
     items = []
     for source, feed_url in RSS_FEEDS.items():
         try:
-            feed = feedparser.parse(feed_url)
+            response = requests.get(
+                feed_url,
+                timeout=(3, RSS_TIMEOUT_SECONDS),
+                headers={"User-Agent": "TRIADA-INV/1.0 (+RSS reader)"},
+            )
+            response.raise_for_status()
+            feed = feedparser.parse(response.content)
+            if getattr(feed, "bozo", False) and not feed.entries:
+                logger.warning("RSS parse failed (%s): %s", source, getattr(feed, "bozo_exception", "unknown error"))
             for entry in feed.entries[:limit_per_feed]:
                 title = entry.get("title", "").strip()
                 url = entry.get("link", "")
