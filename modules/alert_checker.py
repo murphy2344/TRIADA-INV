@@ -1,7 +1,7 @@
 """Background alert checker - runs every 5 minutes to check price alerts."""
 import asyncio
 import logging
-from modules import storage, smart_alerts
+from modules import storage, smart_alerts, charting
 
 logger = logging.getLogger(__name__)
 
@@ -138,20 +138,11 @@ async def _check_smart_alerts(bot, alerts: list) -> int:
 
 
 def _fetch_prices(tickers: list) -> dict:
-    """Fetch current prices for multiple tickers."""
-    # yfinance pulls in pandas and other heavy dependencies; only load it when
-    # the bot actually has user price alerts to check.
-    import yfinance as yf
-
+    """Fetch current prices through the shared Yahoo cooldown."""
     result = {}
     for ticker in tickers:
         try:
-            stock = yf.Ticker(ticker)
-            hist = stock.history(period="1d")
-            if not hist.empty:
-                result[ticker] = float(hist['Close'].iloc[-1])
-            else:
-                result[ticker] = None
+            result[ticker] = charting.get_current_price(ticker)
         except Exception as e:
             logger.error(f"Error fetching price for {ticker}: {e}")
             result[ticker] = None

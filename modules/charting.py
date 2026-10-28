@@ -335,16 +335,15 @@ def get_price_metrics(
 
 
 def get_sparkline_data(ticker_raw: str, period: str = "5d") -> dict | None:
-    import yfinance as yf
-    """Данные для мини-графика (sparkline) в Apple-стиле."""
+    """Данные для мини-графика (sparkline) через общий Yahoo cooldown."""
     ticker = resolve_ticker(ticker_raw)
     if not ticker:
         return None
     try:
-        data = yf.download(
-            ticker, period=period, interval="1h",
-            progress=False, auto_adjust=True, multi_level_index=False
-        )
+        # Route this request through the same cooldown used by price tracking.
+        # yf.download() bypasses the shared guard and can keep hitting Yahoo
+        # while its crumb endpoint is rate-limited.
+        data = _fetch_yfinance_history(ticker, period=period, interval="1h")
         if data is None or data.empty:
             return None
         close = data["Close"] if "Close" in data.columns else data.iloc[:, 0]
@@ -359,7 +358,6 @@ def get_sparkline_data(ticker_raw: str, period: str = "5d") -> dict | None:
     except Exception as e:
         logger.error(f"get_sparkline_data error ({ticker}): {e}")
         return None
-
 
 def build_chart(ticker_raw: str) -> bytes | None:
     ticker = resolve_ticker(ticker_raw)
