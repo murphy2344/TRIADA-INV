@@ -1,4 +1,5 @@
 import sys
+import logging
 import types
 import unittest
 from unittest.mock import Mock, patch
@@ -37,6 +38,31 @@ class YahooPriceCooldownTests(unittest.TestCase):
 
         ticker.history.assert_called_once_with(period="1d")
         self.assertEqual(charting._YFINANCE_COOLDOWN_REASON, "rate/auth limit")
+
+    def test_crumb_429_log_starts_rate_limit_cooldown_even_when_history_returns_data(self):
+        data = Mock()
+        data.empty = False
+        ticker = Mock()
+
+        def history(**kwargs):
+            logging.getLogger("yfinance").warning(
+                "Crumb fetch rate-limited (HTTP 429), continuing without crumb"
+            )
+            return data
+
+        ticker.history.side_effect = history
+        provider = types.SimpleNamespace(Ticker=Mock(return_value=ticker))
+
+        with patch.dict(sys.modules, {"yfinance": provider}):
+            result = charting._fetch_yfinance_history("SPY", "1d")
+
+        self.assertIsNone(result)
+        self.assertEqual(charting._YFINANCE_COOLDOWN_REASON, "crumb rate limit")
+        self.assertGreaterEqual(
+            charting._YFINANCE_COOLDOWN_UNTIL - charting.time.monotonic(),
+            charting._YFINANCE_RATE_LIMIT_SECONDS - 2,
+        )
+        ticker.history.assert_called_once_with(period="1d")
 
     def test_empty_history_starts_short_cooldown(self):
         empty = Mock()
