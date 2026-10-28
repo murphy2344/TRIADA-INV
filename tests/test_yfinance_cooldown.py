@@ -31,10 +31,7 @@ class YahooPriceCooldownTests(unittest.TestCase):
 
         with patch.dict(sys.modules, {"yfinance": provider}):
             self.assertIsNone(charting._fetch_yfinance_history("AAPL", "1d"))
-            self.assertEqual(
-                charting._YFINANCE_COOLDOWN_UNTIL,
-                unittest.mock.ANY,
-            )
+            self.assertGreater(charting._YFINANCE_COOLDOWN_UNTIL, 0)
             with patch.object(charting.time, "monotonic", return_value=charting._YFINANCE_COOLDOWN_UNTIL - 1):
                 self.assertIsNone(charting._fetch_yfinance_history("MSFT", "1d"))
 
