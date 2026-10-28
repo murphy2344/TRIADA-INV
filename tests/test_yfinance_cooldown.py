@@ -3,7 +3,7 @@ import types
 import unittest
 from unittest.mock import Mock, patch
 
-from modules import charting, alert_checker
+from modules import charting
 
 
 class YahooPriceCooldownTests(unittest.TestCase):
@@ -78,8 +78,17 @@ class YahooPriceCooldownTests(unittest.TestCase):
         fetch.assert_called_once_with("AAPL", period="5d", interval="1h")
 
     def test_alert_price_fetch_uses_shared_current_price_helper(self):
-        with patch.object(charting, "get_current_price", side_effect=[123.4, None]) as fetch:
-            result = alert_checker._fetch_prices(["AAPL", "MSFT"])
+        # Stub optional storage modules so this focused unit test does not
+        # require database dependencies in the offline test workflow.
+        storage_stub = types.ModuleType("modules.storage")
+        smart_alerts_stub = types.ModuleType("modules.smart_alerts")
+        with patch.dict(sys.modules, {
+            "modules.storage": storage_stub,
+            "modules.smart_alerts": smart_alerts_stub,
+        }):
+            from modules import alert_checker
+            with patch.object(charting, "get_current_price", side_effect=[123.4, None]) as fetch:
+                result = alert_checker._fetch_prices(["AAPL", "MSFT"])
         self.assertEqual(result, {"AAPL": 123.4, "MSFT": None})
         self.assertEqual(fetch.call_count, 2)
 
