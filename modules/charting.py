@@ -230,8 +230,16 @@ def _fetch_yfinance_history(ticker: str, period: str, interval: str | None = Non
 
             def emit(self, record):
                 message = record.getMessage().lower()
-                if "crumb" in message and any(
-                    token in message for token in ("429", "rate-limit", "rate limit", "rate limited")
+                # yfinance can emit auth failures at ERROR level without the
+                # word "rate limit" (for example "HTTP Error 401: Invalid Crumb").
+                # Treat these as provider-wide failures too, or each caller retries.
+                if any(
+                    token in message
+                    for token in (
+                        "429", "401", "403", "rate-limit", "rate limit",
+                        "rate limited", "too many requests", "unauthorized",
+                        "invalid crumb", "unable to access this feature",
+                    )
                 ):
                     self.rate_limited = True
 
