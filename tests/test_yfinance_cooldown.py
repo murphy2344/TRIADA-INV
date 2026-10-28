@@ -3,7 +3,7 @@ import types
 import unittest
 from unittest.mock import Mock, patch
 
-from modules import charting
+from modules import charting, alert_checker
 
 
 class YahooPriceCooldownTests(unittest.TestCase):
@@ -68,6 +68,20 @@ class YahooPriceCooldownTests(unittest.TestCase):
         self.assertIs(result, data)
         self.assertEqual(charting._YFINANCE_COOLDOWN_UNTIL, 0.0)
         self.assertEqual(charting._YFINANCE_COOLDOWN_REASON, "")
+
+
+    def test_sparkline_uses_shared_cooldown_instead_of_download(self):
+        charting._YFINANCE_COOLDOWN_UNTIL = 9999999999.0
+        with patch.object(charting, "_fetch_yfinance_history", return_value=None) as fetch:
+            result = charting.get_sparkline_data("AAPL")
+        self.assertIsNone(result)
+        fetch.assert_called_once_with("AAPL", period="5d", interval="1h")
+
+    def test_alert_price_fetch_uses_shared_current_price_helper(self):
+        with patch.object(charting, "get_current_price", side_effect=[123.4, None]) as fetch:
+            result = alert_checker._fetch_prices(["AAPL", "MSFT"])
+        self.assertEqual(result, {"AAPL": 123.4, "MSFT": None})
+        self.assertEqual(fetch.call_count, 2)
 
 
 if __name__ == "__main__":
