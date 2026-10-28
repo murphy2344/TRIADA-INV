@@ -1,5 +1,6 @@
 import io
 import logging
+import os
 import re
 import time
 import requests
@@ -307,8 +308,15 @@ def build_chart(ticker_raw: str) -> bytes | None:
     if result:
         return result
 
-    # 3. Lightweight fallback: yfinance + matplotlib. Avoid launching Chromium
-    # on the 512 MiB Render instance; Playwright's browser was missing and
-    # could add substantial memory pressure.
+    # 3. yfinance + matplotlib can push Render's 512 MiB free instance over
+    # its memory limit. In production, let the caller use its photo fallback
+    # instead of risking an OOM restart; retain chart generation for local use.
+    if os.getenv("RENDER_SERVICE_ID"):
+        logger.warning(
+            "Skipping matplotlib chart fallback for %s on Render to protect memory",
+            ticker,
+        )
+        return None
+
     logger.info("Finviz failed or returned placeholder for %s; using yfinance fallback", ticker)
     return _yfinance_chart(ticker)
