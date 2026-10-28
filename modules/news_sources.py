@@ -1,6 +1,7 @@
 import feedparser
 import hashlib
 import logging
+import time
 import requests
 from config.config import RSS_FEEDS
 
@@ -8,6 +9,10 @@ logger = logging.getLogger(__name__)
 
 # Bound each RSS request so one stalled publisher cannot hold a worker indefinitely.
 RSS_TIMEOUT_SECONDS = 8
+# Avoid retrying a failing feed on every two-minute poll.
+RSS_FAILURE_COOLDOWN_SECONDS = 15 * 60
+_feed_retry_after: dict[str, float] = {}
+_feed_failure_logged: set[str] = set()
 
 def _make_id(url: str, title: str) -> str:
     return hashlib.md5(f"{url}{title}".encode()).hexdigest()
@@ -46,7 +51,10 @@ def _extract_rss_image(entry) -> str | None:
 
 def fetch_news(limit_per_feed: int = 3) -> list:
     items = []
+    now = time.monotonic()
     for source, feed_url in RSS_FEEDS.items():
+        if _feed_retry_after.get(source, 0) > now:
+            continue
         try:
             response = requests.get(
                 feed_url,
@@ -54,6 +62,8 @@ def fetch_news(limit_per_feed: int = 3) -> list:
                 headers={"User-Agent": "TRIADA-INV/1.0 (+RSS reader)"},
             )
             response.raise_for_status()
+            _feed_retry_after.pop(source, None)
+            _feed_failure_logged.discard(source)
             feed = feedparser.parse(response.content)
             if getattr(feed, "bozo", False) and not feed.entries:
                 logger.warning("RSS parse failed (%s): %s", source, getattr(feed, "bozo_exception", "unknown error"))
@@ -72,7 +82,13 @@ def fetch_news(limit_per_feed: int = 3) -> list:
                     "rss_image": _extract_rss_image(entry),
                 })
         except Exception as e:
-            logger.error(f"RSS fetch error ({source}): {e}")
+            _feed_retry_after[source] = time.monotonic() + RSS_FAILURE_COOLDOWN_SECONDS
+            if source not in _feed_failure_logged:
+                logger.warning(
+                    "RSS source %s failed; cooling down for %d seconds: %s",
+                    source, RSS_FAILURE_COOLDOWN_SECONDS, e,
+                )
+                _feed_failure_logged.add(source)
     return items
 
 def fetch_breaking_news(limit_per_feed: int = 2) -> list:
