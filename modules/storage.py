@@ -169,6 +169,22 @@ async def increment_stats():
         except Exception as e:
             logger.error(f"DB increment_stats error: {e}")
 
+async def increment_error_stats():
+    """Increment the daily error counter used by the health dashboard."""
+    from datetime import date
+    today = date.today().isoformat()
+    async with db_compat.connect(DB_PATH) as db:
+        try:
+            await db.execute(
+                "INSERT INTO bot_stats (date, errors_count) VALUES (?, 1) "
+                "ON CONFLICT(date) DO UPDATE SET errors_count = bot_stats.errors_count + 1",
+                (today,)
+            )
+            await db.commit()
+        except Exception as e:
+            logger.error("DB increment_error_stats error: %s", e)
+
+
 async def get_today_stats() -> dict:
     from datetime import date
     today = date.today().isoformat()
