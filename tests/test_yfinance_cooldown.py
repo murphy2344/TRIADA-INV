@@ -1,0 +1,74 @@
+import sys
+import types
+import unittest
+from unittest.mock import Mock, patch
+
+from modules import charting
+
+
+class YahooPriceCooldownTests(unittest.TestCase):
+    def setUp(self):
+        self.old_state = (
+            charting._YFINANCE_COOLDOWN_UNTIL,
+            charting._YFINANCE_COOLDOWN_REASON,
+            charting._YFINANCE_COOLDOWN_LOGGED,
+        )
+        charting._YFINANCE_COOLDOWN_UNTIL = 0.0
+        charting._YFINANCE_COOLDOWN_REASON = ""
+        charting._YFINANCE_COOLDOWN_LOGGED = False
+
+    def tearDown(self):
+        (
+            charting._YFINANCE_COOLDOWN_UNTIL,
+            charting._YFINANCE_COOLDOWN_REASON,
+            charting._YFINANCE_COOLDOWN_LOGGED,
+        ) = self.old_state
+
+    def test_rate_limit_starts_long_cooldown_and_skips_followup_request(self):
+        ticker = Mock()
+        ticker.history.side_effect = RuntimeError("HTTP 429 Too Many Requests")
+        provider = types.SimpleNamespace(Ticker=Mock(return_value=ticker))
+
+        with patch.dict(sys.modules, {"yfinance": provider}):
+            self.assertIsNone(charting._fetch_yfinance_history("AAPL", "1d"))
+            self.assertGreater(charting._YFINANCE_COOLDOWN_UNTIL, 0)
+            with patch.object(charting.time, "monotonic", return_value=charting._YFINANCE_COOLDOWN_UNTIL - 1):
+                self.assertIsNone(charting._fetch_yfinance_history("MSFT", "1d"))
+
+        ticker.history.assert_called_once_with(period="1d")
+        self.assertEqual(charting._YFINANCE_COOLDOWN_REASON, "rate/auth limit")
+
+    def test_empty_history_starts_short_cooldown(self):
+        empty = Mock()
+        empty.empty = True
+        ticker = Mock()
+        ticker.history.return_value = empty
+        provider = types.SimpleNamespace(Ticker=Mock(return_value=ticker))
+
+        with patch.dict(sys.modules, {"yfinance": provider}):
+            self.assertIsNone(charting._fetch_yfinance_history("GC=F", "1d"))
+
+        self.assertEqual(charting._YFINANCE_COOLDOWN_REASON, "empty history")
+        self.assertGreater(charting._YFINANCE_COOLDOWN_UNTIL, 0)
+
+    def test_successful_history_clears_previous_cooldown(self):
+        data = Mock()
+        data.empty = False
+        ticker = Mock()
+        ticker.history.return_value = data
+        provider = types.SimpleNamespace(Ticker=Mock(return_value=ticker))
+        charting._YFINANCE_COOLDOWN_UNTIL = 9999999999.0
+        charting._YFINANCE_COOLDOWN_REASON = "old failure"
+
+        with patch.dict(sys.modules, {"yfinance": provider}):
+            # Expire cooldown first so the request can run.
+            charting._YFINANCE_COOLDOWN_UNTIL = 0.0
+            result = charting._fetch_yfinance_history("AAPL", "1d")
+
+        self.assertIs(result, data)
+        self.assertEqual(charting._YFINANCE_COOLDOWN_UNTIL, 0.0)
+        self.assertEqual(charting._YFINANCE_COOLDOWN_REASON, "")
+
+
+if __name__ == "__main__":
+    unittest.main()
