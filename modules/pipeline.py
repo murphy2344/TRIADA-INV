@@ -667,7 +667,7 @@ async def check_recommendations(bot=None, admin_id: str = None):
             continue
         price_after = metrics["price_after"]
         went_up = price_after > rec["price_at_post"]
-        correct = went_up if rec["recommendation"] == "long" else not went_up
+        correct = went_up if rec["recommendation"] == "long" else price_after < rec["price_at_post"]
         await storage.update_recommendation_result(
             rec["id"],
             price_after,
