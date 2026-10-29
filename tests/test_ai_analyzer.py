@@ -71,7 +71,7 @@ class AIJsonParsingTests(unittest.TestCase):
 
     def test_parse_markdown_fenced_json(self):
         self.assertEqual(
-            ai_analyzer._parse_json_object('```json\\n{"skip": true}\\n```'),
+            ai_analyzer._parse_json_object('```json\n{"skip": true}\n```'),
             {"skip": True},
         )
 
