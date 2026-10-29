@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any
 
-import yfinance as yf
+from modules import charting
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -36,9 +36,8 @@ SCAN_UNIVERSE = [
 async def _fetch_ticker_technical(symbol: str, period: str = "3mo") -> dict[str, Any] | None:
     """Fetch technical data for a ticker."""
     try:
-        ticker = await asyncio.to_thread(yf.Ticker, symbol)
         hist = await asyncio.to_thread(
-            lambda: ticker.history(period=period, interval="1d")
+            charting._fetch_yfinance_history, symbol, period, "1d"
         )
 
         if hist.empty or len(hist) < 20:
@@ -107,8 +106,11 @@ async def scan_breakouts(min_volume_ratio: float = 1.5) -> list[dict[str, Any]]:
     """Scan for breakout opportunities."""
     logger.info("Scanning for breakouts...")
 
-    tasks = [_fetch_ticker_technical(symbol) for symbol in SCAN_UNIVERSE]
-    results = await asyncio.gather(*tasks)
+    # The shared Yahoo guard serializes provider requests. Iterate sequentially
+    # instead of holding dozens of waiting tasks and dataframes in memory.
+    results = [
+        await _fetch_ticker_technical(symbol) for symbol in SCAN_UNIVERSE
+    ]
 
     breakouts = []
     for data in results:
@@ -124,8 +126,11 @@ async def scan_unusual_volume(min_ratio: float = 2.0) -> list[dict[str, Any]]:
     """Scan for unusual volume."""
     logger.info("Scanning for unusual volume...")
 
-    tasks = [_fetch_ticker_technical(symbol) for symbol in SCAN_UNIVERSE]
-    results = await asyncio.gather(*tasks)
+    # The shared Yahoo guard serializes provider requests. Iterate sequentially
+    # instead of holding dozens of waiting tasks and dataframes in memory.
+    results = [
+        await _fetch_ticker_technical(symbol) for symbol in SCAN_UNIVERSE
+    ]
 
     unusual = []
     for data in results:
@@ -141,8 +146,11 @@ async def scan_rsi_extremes() -> dict[str, list[dict[str, Any]]]:
     """Scan for RSI extremes (oversold/overbought)."""
     logger.info("Scanning for RSI extremes...")
 
-    tasks = [_fetch_ticker_technical(symbol) for symbol in SCAN_UNIVERSE]
-    results = await asyncio.gather(*tasks)
+    # The shared Yahoo guard serializes provider requests. Iterate sequentially
+    # instead of holding dozens of waiting tasks and dataframes in memory.
+    results = [
+        await _fetch_ticker_technical(symbol) for symbol in SCAN_UNIVERSE
+    ]
 
     oversold = []  # RSI < 30
     overbought = []  # RSI > 70
@@ -168,8 +176,11 @@ async def scan_top_movers() -> dict[str, list[dict[str, Any]]]:
     """Scan for top gainers and losers."""
     logger.info("Scanning for top movers...")
 
-    tasks = [_fetch_ticker_technical(symbol) for symbol in SCAN_UNIVERSE]
-    results = await asyncio.gather(*tasks)
+    # The shared Yahoo guard serializes provider requests. Iterate sequentially
+    # instead of holding dozens of waiting tasks and dataframes in memory.
+    results = [
+        await _fetch_ticker_technical(symbol) for symbol in SCAN_UNIVERSE
+    ]
 
     valid_results = [r for r in results if r]
 
