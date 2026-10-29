@@ -11,7 +11,7 @@ import asyncio
 import logging
 from typing import Any
 
-import yfinance as yf
+from modules import charting
 import pandas as pd
 import numpy as np
 
@@ -21,13 +21,11 @@ logger = logging.getLogger(__name__)
 async def _fetch_ticker_data(ticker: str) -> dict[str, Any] | None:
     """Fetch comprehensive data for a ticker."""
     try:
-        stock = await asyncio.to_thread(yf.Ticker, ticker)
-        info = await asyncio.to_thread(lambda: stock.info)
-        hist = await asyncio.to_thread(lambda: stock.history(period="1y"))
-
-        if hist.empty:
+        hist = await asyncio.to_thread(charting._fetch_yfinance_history, ticker, "1y")
+        if hist is None or hist.empty:
             return None
 
+        info = await asyncio.to_thread(charting._fetch_yfinance_info, ticker) or {}
         current_price = hist["Close"].iloc[-1]
 
         # Calculate returns
