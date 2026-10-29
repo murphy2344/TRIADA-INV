@@ -7,7 +7,7 @@ import logging
 from typing import Any
 from datetime import datetime, timedelta
 
-import yfinance as yf
+from modules import charting
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +15,7 @@ logger = logging.getLogger(__name__)
 async def fetch_ticker_news(ticker: str, limit: int = 5) -> list[dict[str, Any]]:
     """Fetch recent news for a ticker."""
     try:
-        stock = await asyncio.to_thread(yf.Ticker, ticker)
-        news = await asyncio.to_thread(lambda: stock.news)
+        news = await asyncio.to_thread(charting._fetch_yfinance_news, ticker)
 
         if not news:
             return []
@@ -65,9 +64,10 @@ async def fetch_watchlist_news(tickers: list[str], limit_per_ticker: int = 3) ->
     if not tickers:
         return {"error": "Watchlist is empty"}
 
-    # Fetch news for all tickers concurrently
-    tasks = [fetch_ticker_news(ticker, limit_per_ticker) for ticker in tickers]
-    results = await asyncio.gather(*tasks)
+    # The shared Yahoo guard serializes provider calls; avoid a task burst.
+    results = [
+        await fetch_ticker_news(ticker, limit_per_ticker) for ticker in tickers
+    ]
 
     # Combine all news
     all_news = []
