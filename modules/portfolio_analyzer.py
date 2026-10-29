@@ -14,7 +14,7 @@ import logging
 from typing import Any
 from datetime import datetime, timedelta
 
-import yfinance as yf
+from modules import charting
 import pandas as pd
 import numpy as np
 
@@ -24,9 +24,8 @@ logger = logging.getLogger(__name__)
 async def _fetch_ticker_data(ticker: str, period: str = "1y") -> pd.DataFrame | None:
     """Fetch historical data for a ticker."""
     try:
-        stock = await asyncio.to_thread(yf.Ticker, ticker)
-        hist = await asyncio.to_thread(lambda: stock.history(period=period))
-        return hist if not hist.empty else None
+        hist = await asyncio.to_thread(charting._fetch_yfinance_history, ticker, period)
+        return hist if hist is not None and not hist.empty else None
     except Exception as e:
         logger.error(f"Failed to fetch data for {ticker}: {e}")
         return None
@@ -35,8 +34,7 @@ async def _fetch_ticker_data(ticker: str, period: str = "1y") -> pd.DataFrame | 
 async def _fetch_ticker_info(ticker: str) -> dict[str, Any] | None:
     """Fetch ticker info (sector, beta, etc.)."""
     try:
-        stock = await asyncio.to_thread(yf.Ticker, ticker)
-        info = await asyncio.to_thread(lambda: stock.info)
+        info = await asyncio.to_thread(charting._fetch_yfinance_info, ticker)
         return info
     except Exception as e:
         logger.error(f"Failed to fetch info for {ticker}: {e}")
