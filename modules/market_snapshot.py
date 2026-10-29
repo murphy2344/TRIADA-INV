@@ -15,7 +15,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-import yfinance as yf
+from modules import charting
 
 logger = logging.getLogger(__name__)
 
@@ -42,31 +42,24 @@ def _format_price(price: float, decimals: int = 2) -> str:
 
 
 async def _fetch_ticker_data(symbol: str) -> dict[str, Any] | None:
-    """Fetch current price and change for a ticker."""
+    """Fetch a compact daily price snapshot through the shared Yahoo guard."""
     try:
-        ticker = await asyncio.to_thread(yf.Ticker, symbol)
-        info = await asyncio.to_thread(lambda: ticker.info)
+        hist = await asyncio.to_thread(
+            charting._fetch_yfinance_history, symbol, "5d", "1d"
+        )
+        if hist is None or hist.empty or "Close" not in hist:
+            return None
 
-        current_price = info.get("currentPrice") or info.get("regularMarketPrice")
-        prev_close = info.get("previousClose") or info.get("regularMarketPreviousClose")
-
-        if not current_price or not prev_close:
-            # Fallback to history
-            hist = await asyncio.to_thread(
-                lambda: ticker.history(period="2d", interval="1d")
-            )
-            if len(hist) >= 2:
-                current_price = hist["Close"].iloc[-1]
-                prev_close = hist["Close"].iloc[-2]
-            elif len(hist) == 1:
-                current_price = hist["Close"].iloc[-1]
-                prev_close = current_price
-            else:
-                return None
+        closes = hist["Close"].dropna()
+        if closes.empty:
+            return None
+        current_price = float(closes.iloc[-1])
+        prev_close = float(closes.iloc[-2]) if len(closes) >= 2 else current_price
+        if prev_close == 0:
+            return None
 
         change = current_price - prev_close
         change_pct = (change / prev_close) * 100
-
         return {
             "symbol": symbol,
             "price": current_price,
@@ -75,7 +68,7 @@ async def _fetch_ticker_data(symbol: str) -> dict[str, Any] | None:
             "prev_close": prev_close,
         }
     except Exception as e:
-        logger.warning(f"Failed to fetch {symbol}: {e}")
+        logger.warning("Failed to fetch %s: %s", symbol, e)
         return None
 
 
@@ -123,13 +116,12 @@ async def fetch_market_snapshot() -> dict[str, Any]:
 
     for category, symbols in tickers.items():
         results[category] = {}
-        tasks = [_fetch_ticker_data(symbol) for symbol in symbols.keys()]
-        data_list = await asyncio.gather(*tasks)
-
+        # Fetch sequentially: Yahoo's shared guard serializes requests anyway,
+        # and creating a task for every symbol needlessly raises memory use.
         for symbol, name in symbols.items():
-            idx = list(symbols.keys()).index(symbol)
-            if data_list[idx]:
-                results[category][name] = data_list[idx]
+            data = await _fetch_ticker_data(symbol)
+            if data:
+                results[category][name] = data
 
     return results
 
