@@ -2,7 +2,7 @@
 import asyncio
 import logging
 from typing import Any
-import yfinance as yf
+from modules import charting
 
 logger = logging.getLogger(__name__)
 
@@ -10,8 +10,7 @@ logger = logging.getLogger(__name__)
 async def fetch_fundamentals(ticker: str) -> dict[str, Any] | None:
     """Fetch comprehensive fundamental data for a ticker."""
     try:
-        stock = await asyncio.to_thread(yf.Ticker, ticker)
-        info = await asyncio.to_thread(lambda: stock.info)
+        info = await asyncio.to_thread(charting._fetch_yfinance_info, ticker)
 
         if not info or "symbol" not in info:
             return None
@@ -178,8 +177,7 @@ def format_fundamentals(data: dict[str, Any]) -> str:
 async def fetch_peers(ticker: str) -> dict[str, Any] | None:
     """Fetch peer comparison data."""
     try:
-        stock = await asyncio.to_thread(yf.Ticker, ticker)
-        info = await asyncio.to_thread(lambda: stock.info)
+        info = await asyncio.to_thread(charting._fetch_yfinance_info, ticker)
 
         if not info or "symbol" not in info:
             return None
@@ -227,8 +225,7 @@ async def fetch_peers(ticker: str) -> dict[str, Any] | None:
         peers = []
         for peer_ticker in peer_tickers:
             try:
-                peer_stock = await asyncio.to_thread(yf.Ticker, peer_ticker)
-                peer_info = await asyncio.to_thread(lambda: peer_stock.info)
+                peer_info = await asyncio.to_thread(charting._fetch_yfinance_info, peer_ticker)
 
                 peers.append({
                     "symbol": peer_ticker,
@@ -320,8 +317,7 @@ def format_peers(data: dict[str, Any]) -> str:
 async def fetch_analysts(ticker: str) -> dict[str, Any] | None:
     """Fetch analyst ratings and recommendations."""
     try:
-        stock = await asyncio.to_thread(yf.Ticker, ticker)
-        info = await asyncio.to_thread(lambda: stock.info)
+        info = await asyncio.to_thread(charting._fetch_yfinance_info, ticker)
 
         if not info or "symbol" not in info:
             return None
