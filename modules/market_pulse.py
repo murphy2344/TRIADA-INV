@@ -53,16 +53,9 @@ def fetch_imoex() -> dict | None:
 
 def _download_quote(ticker: str) -> dict | None:
     try:
-        import yfinance as yf
+        from modules import charting
 
-        data = yf.download(
-            ticker,
-            period="5d",
-            interval="1d",
-            progress=False,
-            auto_adjust=True,
-            multi_level_index=False,
-        )
+        data = charting._fetch_yfinance_history(ticker, "5d", "1d")
         if data is None or data.empty or "Close" not in data.columns:
             return None
         closes = data["Close"].dropna()
