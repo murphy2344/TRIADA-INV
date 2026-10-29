@@ -8,7 +8,7 @@ import logging
 from typing import Any
 from datetime import datetime
 
-import yfinance as yf
+from modules import charting
 import pandas as pd
 import numpy as np
 
@@ -18,9 +18,10 @@ logger = logging.getLogger(__name__)
 async def _analyze_ticker_opportunity(ticker: str) -> dict[str, Any] | None:
     """Analyze a ticker for trading opportunity."""
     try:
-        stock = await asyncio.to_thread(yf.Ticker, ticker)
-        info = await asyncio.to_thread(lambda: stock.info)
-        hist = await asyncio.to_thread(lambda: stock.history(period="6mo"))
+        hist = await asyncio.to_thread(charting._fetch_yfinance_history, ticker, "6mo")
+        if hist is None or hist.empty or len(hist) < 50:
+            return None
+        info = await asyncio.to_thread(charting._fetch_yfinance_info, ticker) or {}
 
         if hist.empty or len(hist) < 50:
             return None
