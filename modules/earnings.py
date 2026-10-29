@@ -10,7 +10,7 @@
 """
 import logging
 import datetime
-import yfinance as yf
+from modules import charting
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ WATCHLIST = [
 
 def _get_earnings_df(ticker: str) -> pd.DataFrame | None:
     try:
-        df = yf.Ticker(ticker).get_earnings_dates(limit=8)
+        df = charting._fetch_yfinance_earnings_dates(ticker, limit=8)
         if df is None or df.empty:
             return None
         return df
