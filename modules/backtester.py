@@ -11,7 +11,7 @@ import logging
 from typing import Any
 from datetime import datetime, timedelta
 
-import yfinance as yf
+from modules import charting
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -42,18 +42,19 @@ async def backtest_trade(
 
     # Fetch historical data
     try:
-        stock = await asyncio.to_thread(yf.Ticker, ticker)
-        # Fetch from trade date to today
+        # Use the same provider guard as scheduled tasks. Avoid the separate
+        # .info request, which bypasses cooldown and allocates a large payload.
         hist = await asyncio.to_thread(
-            lambda: stock.history(start=trade_date, end=datetime.now())
+            charting._fetch_yfinance_history,
+            ticker,
+            start=trade_date,
+            end=datetime.now(),
         )
 
-        if hist.empty:
+        if hist is None or hist.empty:
             return {"error": f"No data available for {ticker} from {date_str}"}
 
-        # Get info for company name
-        info = await asyncio.to_thread(lambda: stock.info)
-        name = info.get("shortName", ticker)
+        name = ticker
 
     except Exception as e:
         logger.error(f"Failed to fetch data for {ticker}: {e}")
@@ -94,12 +95,14 @@ async def backtest_trade(
 
     # Benchmark: S&P 500
     try:
-        spy = await asyncio.to_thread(yf.Ticker, "SPY")
         spy_hist = await asyncio.to_thread(
-            lambda: spy.history(start=entry_date, end=current_date)
+            charting._fetch_yfinance_history,
+            "SPY",
+            start=entry_date,
+            end=current_date,
         )
 
-        if not spy_hist.empty and len(spy_hist) > 1:
+        if spy_hist is not None and not spy_hist.empty and len(spy_hist) > 1:
             spy_entry = spy_hist["Close"].iloc[0]
             spy_current = spy_hist["Close"].iloc[-1]
             spy_return = ((spy_current - spy_entry) / spy_entry) * 100
