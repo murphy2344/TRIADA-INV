@@ -13,7 +13,7 @@ import asyncio
 import logging
 from typing import Any
 
-import yfinance as yf
+from modules import charting
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -22,10 +22,9 @@ logger = logging.getLogger(__name__)
 async def check_breakout(ticker: str, resistance: float) -> dict[str, Any] | None:
     """Check if price broke above resistance level."""
     try:
-        stock = await asyncio.to_thread(yf.Ticker, ticker)
-        hist = await asyncio.to_thread(lambda: stock.history(period="5d"))
+        hist = await asyncio.to_thread(charting._fetch_yfinance_history, ticker, "5d")
 
-        if hist.empty or len(hist) < 2:
+        if hist is None or hist.empty or len(hist) < 2:
             return None
 
         current_price = hist["Close"].iloc[-1]
@@ -51,10 +50,9 @@ async def check_breakout(ticker: str, resistance: float) -> dict[str, Any] | Non
 async def check_breakdown(ticker: str, support: float) -> dict[str, Any] | None:
     """Check if price broke below support level."""
     try:
-        stock = await asyncio.to_thread(yf.Ticker, ticker)
-        hist = await asyncio.to_thread(lambda: stock.history(period="5d"))
+        hist = await asyncio.to_thread(charting._fetch_yfinance_history, ticker, "5d")
 
-        if hist.empty or len(hist) < 2:
+        if hist is None or hist.empty or len(hist) < 2:
             return None
 
         current_price = hist["Close"].iloc[-1]
@@ -80,10 +78,9 @@ async def check_breakdown(ticker: str, support: float) -> dict[str, Any] | None:
 async def check_rsi_oversold(ticker: str, threshold: float = 30) -> dict[str, Any] | None:
     """Check if RSI is oversold (< threshold)."""
     try:
-        stock = await asyncio.to_thread(yf.Ticker, ticker)
-        hist = await asyncio.to_thread(lambda: stock.history(period="3mo"))
+        hist = await asyncio.to_thread(charting._fetch_yfinance_history, ticker, "3mo")
 
-        if hist.empty or len(hist) < 14:
+        if hist is None or hist.empty or len(hist) < 14:
             return None
 
         # Calculate RSI
@@ -116,10 +113,9 @@ async def check_rsi_oversold(ticker: str, threshold: float = 30) -> dict[str, An
 async def check_rsi_overbought(ticker: str, threshold: float = 70) -> dict[str, Any] | None:
     """Check if RSI is overbought (> threshold)."""
     try:
-        stock = await asyncio.to_thread(yf.Ticker, ticker)
-        hist = await asyncio.to_thread(lambda: stock.history(period="3mo"))
+        hist = await asyncio.to_thread(charting._fetch_yfinance_history, ticker, "3mo")
 
-        if hist.empty or len(hist) < 14:
+        if hist is None or hist.empty or len(hist) < 14:
             return None
 
         # Calculate RSI
@@ -152,10 +148,9 @@ async def check_rsi_overbought(ticker: str, threshold: float = 70) -> dict[str, 
 async def check_volume_spike(ticker: str, multiplier: float = 2.0) -> dict[str, Any] | None:
     """Check if current volume is X times higher than average."""
     try:
-        stock = await asyncio.to_thread(yf.Ticker, ticker)
-        hist = await asyncio.to_thread(lambda: stock.history(period="1mo"))
+        hist = await asyncio.to_thread(charting._fetch_yfinance_history, ticker, "1mo")
 
-        if hist.empty or len(hist) < 20:
+        if hist is None or hist.empty or len(hist) < 20:
             return None
 
         current_volume = hist["Volume"].iloc[-1]
@@ -183,10 +178,9 @@ async def check_volume_spike(ticker: str, multiplier: float = 2.0) -> dict[str, 
 async def check_golden_cross(ticker: str) -> dict[str, Any] | None:
     """Check if 50 SMA crossed above 200 SMA (bullish signal)."""
     try:
-        stock = await asyncio.to_thread(yf.Ticker, ticker)
-        hist = await asyncio.to_thread(lambda: stock.history(period="1y"))
+        hist = await asyncio.to_thread(charting._fetch_yfinance_history, ticker, "1y")
 
-        if hist.empty or len(hist) < 200:
+        if hist is None or hist.empty or len(hist) < 200:
             return None
 
         close = hist["Close"]
@@ -221,10 +215,9 @@ async def check_golden_cross(ticker: str) -> dict[str, Any] | None:
 async def check_death_cross(ticker: str) -> dict[str, Any] | None:
     """Check if 50 SMA crossed below 200 SMA (bearish signal)."""
     try:
-        stock = await asyncio.to_thread(yf.Ticker, ticker)
-        hist = await asyncio.to_thread(lambda: stock.history(period="1y"))
+        hist = await asyncio.to_thread(charting._fetch_yfinance_history, ticker, "1y")
 
-        if hist.empty or len(hist) < 200:
+        if hist is None or hist.empty or len(hist) < 200:
             return None
 
         close = hist["Close"]
