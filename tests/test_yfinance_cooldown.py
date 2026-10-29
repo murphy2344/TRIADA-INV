@@ -89,6 +89,23 @@ class YahooPriceCooldownTests(unittest.TestCase):
         )
         ticker.history.assert_called_once_with(period="1d")
 
+    def test_ranged_history_uses_start_and_end_without_period(self):
+        data = Mock()
+        data.empty = False
+        ticker = Mock()
+        ticker.history.return_value = data
+        provider = types.SimpleNamespace(Ticker=Mock(return_value=ticker))
+
+        with patch.dict(sys.modules, {"yfinance": provider}):
+            result = charting._fetch_yfinance_history(
+                "AAPL", start="2024-01-01", end="2024-02-01"
+            )
+
+        self.assertIs(result, data)
+        ticker.history.assert_called_once_with(
+            start="2024-01-01", end="2024-02-01"
+        )
+
     def test_empty_history_starts_short_cooldown(self):
         empty = Mock()
         empty.empty = True
