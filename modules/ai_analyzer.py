@@ -247,6 +247,24 @@ def _analyze_gemini(prompt: str, category: str) -> dict | None:
         return None
 
 
+def _parse_json_object(raw_text: str) -> dict:
+    """Parse a JSON object even if a provider wraps it in Markdown or extra text."""
+    text = (raw_text or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^\`\`\`(?:json)?\\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\\s*\`\`\`$", "", text)
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        start, end = text.find("{"), text.rfind("}")
+        if start < 0 or end <= start:
+            raise
+        parsed = json.loads(text[start:end + 1])
+    if not isinstance(parsed, dict):
+        raise ValueError("AI response JSON must be an object")
+    return parsed
+
+
 def _analyze_groq(prompt: str, category: str, model: str, attempt: int) -> dict | None:
     if not GROQ_API_KEY or not model:
         return None
@@ -257,12 +275,14 @@ def _analyze_groq(prompt: str, category: str, model: str, attempt: int) -> dict 
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": SYSTEM_PROMPT + "\\nKeep every field concise; return one compact JSON object only."},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.2,
-            max_tokens=1800,
-            response_format={"type": "json_object"},
+            # Give reasoning models enough completion budget to finish valid JSON.
+            # Avoid provider-side constrained-JSON failures seen with gpt-oss models;
+            # the response is still validated locally before it enters the pipeline.
+            max_tokens=2500,
         )
         raw_usage = getattr(response, "usage", None)
         if raw_usage:
@@ -271,7 +291,8 @@ def _analyze_groq(prompt: str, category: str, model: str, attempt: int) -> dict 
                 "completion_tokens": getattr(raw_usage, "completion_tokens", 0),
                 "total_tokens": getattr(raw_usage, "total_tokens", 0),
             }
-        result = _normalize_result(json.loads(response.choices[0].message.content), category)
+        raw_text = response.choices[0].message.content
+        result = _normalize_result(_parse_json_object(raw_text), category)
         _usage_log("Groq", model, started, usage, "success", attempt)
         logger.info("AI_RESULT provider=Groq model=%s relevant=%s", model, result.get("relevant"))
         return result
