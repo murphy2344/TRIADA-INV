@@ -65,5 +65,26 @@ class AIFailoverTests(unittest.TestCase):
         groq.assert_not_called()
 
 
+class AIJsonParsingTests(unittest.TestCase):
+    def test_parse_plain_json_object(self):
+        self.assertEqual(ai_analyzer._parse_json_object('{"skip": true}'), {"skip": True})
+
+    def test_parse_markdown_fenced_json(self):
+        self.assertEqual(
+            ai_analyzer._parse_json_object('\\`\\`\\`json\\n{"skip": true}\\n\\`\\`\\`'),
+            {"skip": True},
+        )
+
+    def test_parse_json_object_with_surrounding_text(self):
+        self.assertEqual(
+            ai_analyzer._parse_json_object('Result follows: {"skip": true} done'),
+            {"skip": True},
+        )
+
+    def test_reject_non_object_json(self):
+        with self.assertRaises(ValueError):
+            ai_analyzer._parse_json_object('[1, 2, 3]')
+
+
 if __name__ == "__main__":
     unittest.main()
