@@ -251,8 +251,8 @@ def _parse_json_object(raw_text: str) -> dict:
     """Parse a JSON object even if a provider wraps it in Markdown or extra text."""
     text = (raw_text or "").strip()
     if text.startswith("```"):
-        text = re.sub(r"^\`\`\`(?:json)?\\s*", "", text, flags=re.IGNORECASE)
-        text = re.sub(r"\\s*\`\`\`$", "", text)
+        text = re.sub(r"^`{3}(?:json)?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*`{3}$", "", text)
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError:
@@ -275,7 +275,7 @@ def _analyze_groq(prompt: str, category: str, model: str, attempt: int) -> dict 
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT + "\\nKeep every field concise; return one compact JSON object only."},
+                {"role": "system", "content": SYSTEM_PROMPT + "\nKeep every field concise; return one compact JSON object only."},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.2,
