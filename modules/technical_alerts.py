@@ -6,7 +6,7 @@
 лишнее и не рисковать проблемами установки на Render.
 """
 import logging
-import yfinance as yf
+from modules import charting
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ def analyze_ticker(ticker: str) -> dict | None:
     """Возвращает текущие технические показатели по тикеру, либо None,
     если данных недостаточно (мало истории/сеть недоступна)."""
     try:
-        data = yf.Ticker(ticker).history(period="1y", interval="1d")
+        data = charting._fetch_yfinance_history(ticker, "1y", "1d")
         if data is None or data.empty or len(data) < 60:
             return None
         closes = data["Close"].dropna()
