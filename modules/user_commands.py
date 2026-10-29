@@ -3,7 +3,7 @@ import asyncio
 import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
-import yfinance as yf
+from modules import charting
 
 from modules import storage, charting
 
@@ -339,9 +339,8 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def _fetch_price(ticker: str) -> float | None:
     try:
-        stock = yf.Ticker(ticker)
-        hist = stock.history(period="1d")
-        if hist.empty:
+        hist = charting._fetch_yfinance_history(ticker, "1d")
+        if hist is None or hist.empty:
             return None
         return float(hist['Close'].iloc[-1])
     except Exception:
@@ -359,11 +358,10 @@ def _fetch_prices(tickers: list) -> dict:
 
 def _fetch_ticker_info(ticker: str) -> dict | None:
     try:
-        stock = yf.Ticker(ticker)
-        info = stock.info
-        hist = stock.history(period="1d")
+        info = charting._fetch_yfinance_info(ticker) or {}
+        hist = charting._fetch_yfinance_history(ticker, "1d")
 
-        if hist.empty:
+        if hist is None or hist.empty:
             return None
 
         current_price = float(hist['Close'].iloc[-1])
