@@ -17,7 +17,7 @@ import asyncio
 import logging
 from typing import Any
 
-import yfinance as yf
+from modules import charting
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +39,9 @@ SECTOR_ETFS = {
 async def _fetch_sector_performance(symbol: str) -> dict[str, Any] | None:
     """Fetch performance for a sector ETF."""
     try:
-        ticker = await asyncio.to_thread(yf.Ticker, symbol)
-        hist = await asyncio.to_thread(lambda: ticker.history(period="5d"))
+        hist = await asyncio.to_thread(charting._fetch_yfinance_history, symbol, "5d")
 
-        if hist.empty or len(hist) < 2:
+        if hist is None or hist.empty or len(hist) < 2:
             return None
 
         current_price = hist["Close"].iloc[-1]
@@ -70,8 +69,8 @@ async def _fetch_sector_performance(symbol: str) -> dict[str, Any] | None:
 
 async def fetch_all_sectors() -> list[dict[str, Any]]:
     """Fetch performance for all sector ETFs."""
-    tasks = [_fetch_sector_performance(symbol) for symbol in SECTOR_ETFS.keys()]
-    results = await asyncio.gather(*tasks)
+    # The shared Yahoo guard serializes provider requests; keep memory bounded.
+    results = [await _fetch_sector_performance(symbol) for symbol in SECTOR_ETFS.keys()]
 
     # Filter out None results and sort by daily performance
     valid_results = [r for r in results if r]
