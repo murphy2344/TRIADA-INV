@@ -204,8 +204,19 @@ _YFINANCE_RATE_LIMIT_SECONDS = 600
 _YFINANCE_LOCK = threading.Lock()
 
 
-def _fetch_yfinance_history(ticker: str, period: str, interval: str | None = None):
-    """Fetch Yahoo history and honor cooldowns even when yfinance only logs a crumb 429."""
+def _fetch_yfinance_history(
+    ticker: str,
+    period: str | None = "1d",
+    interval: str | None = None,
+    *,
+    start=None,
+    end=None,
+):
+    """Fetch Yahoo history through one process-wide lock and shared cooldown.
+
+    Use either a period or an explicit start/end range. All automated Yahoo
+    history requests should use this helper so provider failures are shared.
+    """
     global _YFINANCE_COOLDOWN_UNTIL, _YFINANCE_COOLDOWN_REASON
     global _YFINANCE_COOLDOWN_LOGGED
 
@@ -247,7 +258,13 @@ def _fetch_yfinance_history(ticker: str, period: str, interval: str | None = Non
         crumb_capture = _CrumbRateLimitCapture(level=logging.WARNING)
         yfinance_logger.addHandler(crumb_capture)
         try:
-            history_kwargs = {"period": period}
+            history_kwargs = {}
+            if start is not None:
+                history_kwargs["start"] = start
+                if end is not None:
+                    history_kwargs["end"] = end
+            elif period:
+                history_kwargs["period"] = period
             if interval:
                 history_kwargs["interval"] = interval
             data = yf.Ticker(ticker).history(**history_kwargs)
