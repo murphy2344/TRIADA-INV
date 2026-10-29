@@ -382,6 +382,75 @@ def _fetch_yfinance_info(ticker: str) -> dict | None:
         _YFINANCE_COOLDOWN_LOGGED = False
         return info
 
+
+def _fetch_yfinance_earnings_dates(ticker: str, limit: int = 8):
+    """Fetch earnings dates under the same Yahoo lock and provider cooldown."""
+    global _YFINANCE_COOLDOWN_UNTIL, _YFINANCE_COOLDOWN_REASON
+    global _YFINANCE_COOLDOWN_LOGGED
+
+    import yfinance as yf
+
+    with _YFINANCE_LOCK:
+        now = time.monotonic()
+        if now < _YFINANCE_COOLDOWN_UNTIL:
+            if not _YFINANCE_COOLDOWN_LOGGED:
+                logger.warning(
+                    "Yahoo Finance requests paused for %.0fs after provider failure (%s)",
+                    _YFINANCE_COOLDOWN_UNTIL - now,
+                    _YFINANCE_COOLDOWN_REASON or "unavailable data",
+                )
+                _YFINANCE_COOLDOWN_LOGGED = True
+            return None
+
+        class _AuthFailureCapture(logging.Handler):
+            failed = False
+
+            def emit(self, record):
+                message = record.getMessage().lower()
+                if any(token in message for token in (
+                    "429", "401", "403", "rate-limit", "rate limit",
+                    "rate limited", "too many requests", "unauthorized",
+                    "invalid crumb", "unable to access this feature",
+                )):
+                    self.failed = True
+
+        yfinance_logger = logging.getLogger("yfinance")
+        capture = _AuthFailureCapture(level=logging.WARNING)
+        yfinance_logger.addHandler(capture)
+        try:
+            data = yf.Ticker(ticker).get_earnings_dates(limit=limit)
+        except Exception as exc:
+            message = str(exc).lower()
+            rate_limited = any(token in message for token in (
+                "429", "401", "403", "crumb", "rate limit", "too many requests"
+            ))
+            cooldown = _YFINANCE_RATE_LIMIT_SECONDS if rate_limited else _YFINANCE_COOLDOWN_SECONDS
+            _YFINANCE_COOLDOWN_UNTIL = time.monotonic() + cooldown
+            _YFINANCE_COOLDOWN_REASON = "rate/auth limit" if rate_limited else type(exc).__name__
+            _YFINANCE_COOLDOWN_LOGGED = False
+            logger.warning(
+                "Yahoo Finance earnings dates failed for %s (%s); cooling down for %ss",
+                ticker, _YFINANCE_COOLDOWN_REASON, cooldown,
+            )
+            return None
+        finally:
+            yfinance_logger.removeHandler(capture)
+
+        if capture.failed:
+            _YFINANCE_COOLDOWN_UNTIL = time.monotonic() + _YFINANCE_RATE_LIMIT_SECONDS
+            _YFINANCE_COOLDOWN_REASON = "earnings metadata auth/rate limit"
+            _YFINANCE_COOLDOWN_LOGGED = False
+            logger.warning(
+                "Yahoo Finance earnings auth/rate failure for %s; cooling down for %ss",
+                ticker, _YFINANCE_RATE_LIMIT_SECONDS,
+            )
+            return None
+
+        _YFINANCE_COOLDOWN_UNTIL = 0.0
+        _YFINANCE_COOLDOWN_REASON = ""
+        _YFINANCE_COOLDOWN_LOGGED = False
+        return data
+
 def get_current_price(ticker_raw: str) -> float | None:
     """Текущая цена актива — для трек-рекорда рекомендаций."""
     ticker = resolve_ticker(ticker_raw)
