@@ -52,7 +52,7 @@ pre{background:#010409;padding:12px;border-radius:6px;color:#f85149;font-size:12
 <p>Канал: <code>{{ channel }}</code></p>
 </div>
 <div class="card"><h2>Модули</h2>
-<p>✅ AI: Gemini {{ gemini_model }} → {{ gemini_fallback }} (fallback: Groq {{ groq_model }})</p>
+<p>✅ AI: Groq {{ groq_model }} → Gemini {{ gemini_model }} → Gemini Lite {{ gemini_fallback }} → Groq fallback</p>
 <p>✅ AI-критик: Gemini (fallback: Groq, только high-impact BREAKING)</p>
 <p>✅ Графики: Finviz (с детектом заглушки) → yfinance+matplotlib (fallback)</p>
 <p>✅ Фото: стаб-файлы из assets/stubs/ / RSS→Wikimedia→Google CSE→Pexels</p>
@@ -1092,7 +1092,7 @@ async def main():
               f"• Track Record — проверка результатов каждый час\n"
               f"• Telegram-мониторинг — каждые 5 мин, если настроен TG_*\n\n"
               f"<b>ИНТЕГРАЦИИ</b>\n"
-              f"• AI — <code>{GEMINI_MODEL}</code> → <code>{GEMINI_FALLBACK_MODEL}</code> → Groq\n"
+              f"• AI — Groq <code>{GROQ_MODEL}</code> → Gemini <code>{GEMINI_MODEL}</code> → Gemini Lite → Groq резерв\n"
               f"• Новости — RSS · Wikimedia · Google CSE · Pexels / Pixabay\n"
               f"• Графики — Finviz / yfinance · изображения — assets/stubs/\n"
               f"🟡 Внешние API — конфигурация указана, доступность отдельно не проверена\n\n"
