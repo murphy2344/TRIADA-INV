@@ -27,8 +27,11 @@ GEMINI_API_URL = (
 # Groq is currently the most reliable observed provider; Gemini remains an
 # independent second provider, with its configured lite model as a same-vendor
 # fallback. The final Groq model is a last resort and shares Groq org quota.
-PRIMARY_GROQ_MODEL = os.getenv("TRIADA_AI_PRIMARY_MODEL", GROQ_MODEL or "openai/gpt-oss-120b").strip()
-PRIMARY_GEMINI_MODEL = os.getenv("TRIADA_AI_FALLBACK_MODEL", GEMINI_MODEL or "gemini-3.8-flash").strip()
+PRIMARY_GROQ_MODEL = os.getenv(
+    "TRIADA_AI_GROQ_PRIMARY_MODEL",
+    os.getenv("TRIADA_AI_FALLBACK_MODEL", GROQ_MODEL or "openai/gpt-oss-120b"),
+).strip()
+PRIMARY_GEMINI_MODEL = os.getenv("TRIADA_AI_PRIMARY_MODEL", GEMINI_MODEL or "gemini-3.8-flash").strip()
 SECONDARY_GEMINI_MODEL = os.getenv("TRIADA_AI_GEMINI_LAST_RESORT_MODEL", GEMINI_FALLBACK_MODEL or "").strip()
 SECONDARY_GROQ_MODEL = os.getenv("TRIADA_AI_LAST_RESORT_MODEL", GROQ_FALLBACK_MODEL or "openai/gpt-oss-20b").strip()
 
@@ -256,7 +259,7 @@ def _analyze_gemini(prompt: str, category: str, model: str | None = None) -> dic
         _set_provider_cooldown("Gemini", model, exc, code)
         _usage_log("Gemini", model, started, usage, "error", 1, code)
         logger.warning("AI_FAILOVER provider=Gemini model=%s error_code=%s detail=%s",
-                       PRIMARY_GEMINI_MODEL, code, str(exc)[:250])
+                       model, code, str(exc)[:250])
         return None
 
 
@@ -430,7 +433,11 @@ def analyze_batch(news_items: list, category: str = "HOURLY") -> list:
             )
         analysis = analyze(text, category)
         if analysis and analysis.get("relevant") is not False:
+            source_names = item.get("corroborating_sources") or []
             analysis["_source"] = item.get("source", "")
+            if len(source_names) > 1:
+                analysis["_source"] += f" + ещё {len(source_names) - 1} источн."
+            analysis["_source_count"] = int(item.get("source_count") or 1)
             analysis["_url"] = item.get("url", "")
             analysis["_raw_title"] = title
             results.append(analysis)
