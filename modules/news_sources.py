@@ -28,6 +28,10 @@ _feed_failures: dict[str, int] = {}
 _feed_failure_logged: set[str] = set()
 _host_retry_after: dict[str, float] = {}
 _feed_cache_headers: dict[str, dict[str, str]] = {}
+# Keep the last successful payload so conditional 304 responses and transient
+# provider failures do not make the entire news cycle appear empty.
+_feed_items_cache: dict[str, list[dict]] = {}
+_feed_last_success: dict[str, float] = {}
 _state_lock = threading.Lock()
 _finnhub_cache = (0.0, [])
 _FINNHUB_CACHE_SECONDS = 300
@@ -79,7 +83,7 @@ def _fetch_one(source: str, feed_url: str, limit_per_feed: int) -> list[dict]:
     host = urlparse(feed_url).netloc.lower()
     with _state_lock:
         if _feed_retry_after.get(source, 0) > now or _host_retry_after.get(host, 0) > now:
-            return []
+            return [dict(item) for item in _feed_items_cache.get(source, [])[:limit_per_feed]]
         headers = {"User-Agent": RSS_USER_AGENT, **_feed_cache_headers.get(source, {})}
 
     try:
@@ -89,7 +93,9 @@ def _fetch_one(source: str, feed_url: str, limit_per_feed: int) -> list[dict]:
             with _state_lock:
                 _feed_retry_after.pop(source, None)
                 _feed_failures.pop(source, None)
-            return []
+                cached = [dict(item) for item in _feed_items_cache.get(source, [])]
+            logger.debug("RSS_CACHE_REUSED source=%s items=%d", source, len(cached))
+            return cached[:limit_per_feed]
         if response.status_code == 429:
             retry_after = response.headers.get("Retry-After", "")
             try:
@@ -112,6 +118,8 @@ def _fetch_one(source: str, feed_url: str, limit_per_feed: int) -> list[dict]:
 
         with _state_lock:
             _feed_cache_headers[source] = cache_headers
+            _feed_items_cache[source] = items
+            _feed_last_success[source] = time.monotonic()
             _feed_retry_after.pop(source, None)
             _feed_failures.pop(source, None)
             _feed_failure_logged.discard(source)
@@ -150,7 +158,13 @@ def _fetch_one(source: str, feed_url: str, limit_per_feed: int) -> list[dict]:
                 "RSS_SOURCE_FAIL source=%s host=%s cooldown_s=%d error=%s",
                 source, host, cooldown, type(exc).__name__,
             )
-        return []
+        # Serve the last known-good payload during an outage. Downstream
+        # publication deduplication prevents reposting already handled items.
+        with _state_lock:
+            cached = [dict(item) for item in _feed_items_cache.get(source, [])]
+        if cached:
+            logger.info("RSS_STALE_CACHE_USED source=%s items=%d", source, len(cached[:limit_per_feed]))
+        return cached[:limit_per_feed]
 
 
 
@@ -299,4 +313,10 @@ def get_source_health() -> dict:
             "cooling_down": sum(until > now for until in _feed_retry_after.values()),
             "failed_sources": len(_feed_failures),
             "cached_validators": len(_feed_cache_headers),
+            "cached_feeds": len(_feed_items_cache),
+            "feeds_with_payload": sum(bool(items) for items in _feed_items_cache.values()),
+            "last_success_age_seconds": {
+                source: round(max(0.0, now - updated), 1)
+                for source, updated in _feed_last_success.items()
+            },
         }
