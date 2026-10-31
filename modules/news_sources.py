@@ -28,7 +28,7 @@ _RUSSIAN_MARKET_STORY = re.compile(
 
 def is_excluded_russian_market_story(item: dict) -> bool:
     """Exclude Russian exchange/currency coverage, but retain geopolitics affecting global markets."""
-    text = f"{item.get('title', '')} {item.get('summary', '')}"
+    text = str(item.get("title") or item.get("summary") or "")
     return bool(_RUSSIAN_MARKET_STORY.search(text))
 
 RSS_TIMEOUT_SECONDS = 8
