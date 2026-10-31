@@ -61,7 +61,9 @@ class NewsSourceCacheTests(unittest.TestCase):
     def tearDown(self):
         for mapping in (news_sources._feed_retry_after, news_sources._feed_failures,
                         news_sources._feed_cache_headers, news_sources._feed_items_cache,
-                        news_sources._feed_last_success, news_sources._host_retry_after):
+                        news_sources._feed_last_success, news_sources._feed_last_status,
+                        news_sources._feed_last_error, news_sources._feed_attempts,
+                        news_sources._feed_successes, news_sources._host_retry_after):
             mapping.pop(self.source, None)
         news_sources._host_retry_after.pop('cache-test.example', None)
 
@@ -125,6 +127,29 @@ class GlobalMarketScopeTests(unittest.TestCase):
     def test_keeps_geopolitical_news_with_global_market_impact(self):
         item = {'title': 'New sanctions on Russia raise global energy risk', 'summary': ''}
         self.assertFalse(news_sources.is_excluded_russian_market_story(item))
+
+
+class NewsSourceHealthTests(unittest.TestCase):
+    def test_health_reports_per_source_state_without_secrets(self):
+        news_sources._feed_last_status['Health Test'] = '503'
+        news_sources._feed_last_error['Health Test'] = 'HTTP 503'
+        news_sources._feed_attempts['Health Test'] = 2
+        health = news_sources.get_source_health()
+        self.assertIn('sources', health)
+        self.assertEqual(health['sources']['Health Test']['last_status'], '503')
+        self.assertEqual(health['sources']['Health Test']['attempts'], 2)
+        self.assertNotIn('token', str(health).lower())
+        news_sources._feed_last_status.pop('Health Test', None)
+        news_sources._feed_last_error.pop('Health Test', None)
+        news_sources._feed_attempts.pop('Health Test', None)
+
+    @patch.object(news_sources.requests, 'get')
+    def test_finnhub_failure_keeps_last_good_cache(self, get):
+        news_sources._finnhub_cache = (0.0, [{'id': 'cached', 'title': 'Last good'}])
+        get.side_effect = news_sources.requests.HTTPError('503 unavailable')
+        with patch.object(news_sources, 'FINNHUB_API_KEY', 'test-key'):
+            items = news_sources._fetch_finnhub_general_news()
+        self.assertEqual(items[0]['id'], 'cached')
 
 
 if __name__ == "__main__":
