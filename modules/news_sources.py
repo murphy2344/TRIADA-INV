@@ -14,7 +14,7 @@ import threading
 import time
 import requests
 
-from config.config import RSS_FEEDS
+from config.config import RSS_FEEDS, FINNHUB_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,9 @@ _feed_failure_logged: set[str] = set()
 _host_retry_after: dict[str, float] = {}
 _feed_cache_headers: dict[str, dict[str, str]] = {}
 _state_lock = threading.Lock()
+_finnhub_cache = (0.0, [])
+_FINNHUB_CACHE_SECONDS = 300
+_finnhub_lock = threading.Lock()
 
 
 def _make_id(url: str, title: str) -> str:
@@ -150,6 +153,92 @@ def _fetch_one(source: str, feed_url: str, limit_per_feed: int) -> list[dict]:
         return []
 
 
+
+def _fetch_finnhub_general_news():
+    """Optional second global-news provider; cached to conserve API quota."""
+    global _finnhub_cache
+    if not FINNHUB_API_KEY:
+        return []
+    now = time.monotonic()
+    with _finnhub_lock:
+        if now - _finnhub_cache[0] < _FINNHUB_CACHE_SECONDS:
+            return list(_finnhub_cache[1])
+        try:
+            response = requests.get(
+                "https://finnhub.io/api/v1/news",
+                params={"category": "general", "token": FINNHUB_API_KEY},
+                timeout=(3, RSS_TIMEOUT_SECONDS),
+                headers={"User-Agent": RSS_USER_AGENT},
+            )
+            response.raise_for_status()
+            payload = response.json()
+            items = []
+            for article in payload if isinstance(payload, list) else []:
+                title = (article.get("headline") or "").strip()
+                url = (article.get("url") or "").strip()
+                if not title or not url:
+                    continue
+                try:
+                    published = datetime.fromtimestamp(
+                        int(article.get("datetime")), timezone.utc
+                    ).isoformat()
+                except (TypeError, ValueError, OSError, OverflowError):
+                    published = ""
+                items.append({
+                    "id": _make_id(url, title),
+                    "title": title,
+                    "source": article.get("source") or "Finnhub",
+                    "url": url,
+                    "summary": (article.get("summary") or "")[:1200],
+                    "rss_image": article.get("image") or None,
+                    "published_at": published,
+                    "source_domain": urlparse(url).netloc.lower(),
+                })
+            _finnhub_cache = (time.monotonic(), items[:80])
+            logger.info("NEWS_PROVIDER_OK provider=Finnhub items=%d", len(items))
+            return list(_finnhub_cache[1])
+        except Exception as exc:
+            logger.warning("NEWS_PROVIDER_FAIL provider=Finnhub error=%s", type(exc).__name__)
+            _finnhub_cache = (time.monotonic() - (_FINNHUB_CACHE_SECONDS - 90), [])
+            return []
+
+
+def _title_tokens(title):
+    stop = {
+        "the", "and", "for", "with", "from", "that", "this", "after", "before",
+        "says", "said", "will", "into", "over", "about", "после", "перед", "для",
+        "что", "как", "это",
+    }
+    tokens = set()
+    for word in (title or "").lower().replace("-", " ").split():
+        token = "".join(char for char in word if char.isalnum())
+        if len(token) > 2 and token not in stop:
+            tokens.add(token)
+    return tokens
+
+
+def _attach_corroborating_sources(items):
+    """Attach distinct publishers for strongly similar headlines."""
+    token_sets = [_title_tokens(item.get("title", "")) for item in items]
+    for index, item in enumerate(items):
+        domains = {item.get("source_domain") or item.get("source", "")}
+        sources = {item.get("source", "")}
+        own_tokens = token_sets[index]
+        if len(own_tokens) >= 3:
+            for other_index, other in enumerate(items):
+                if index == other_index or not token_sets[other_index]:
+                    continue
+                other_domain = other.get("source_domain") or other.get("source", "")
+                if other_domain in domains:
+                    continue
+                intersection = len(own_tokens & token_sets[other_index])
+                union = len(own_tokens | token_sets[other_index])
+                if union and intersection / union >= 0.62:
+                    domains.add(other_domain)
+                    sources.add(other.get("source", ""))
+        item["corroborating_sources"] = sorted(source for source in sources if source)
+        item["source_count"] = len(domains)
+
 def fetch_news(limit_per_feed: int = 3) -> list:
     """Collect news from all healthy configured feeds without serial blocking."""
     if not RSS_FEEDS:
@@ -174,6 +263,8 @@ def fetch_news(limit_per_feed: int = 3) -> list:
         key = _make_id(item["url"], item["title"])
         unique.setdefault(key, item)
     result = list(unique.values())
+    result.extend(_fetch_finnhub_general_news())
+    _attach_corroborating_sources(result)
     result.sort(key=lambda item: item.get("published_at") or "", reverse=True)
     logger.info(
         "RSS_COLLECTION sources=%d healthy_items=%d configured=%d",
