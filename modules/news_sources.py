@@ -257,13 +257,14 @@ def fetch_news(limit_per_feed: int = 3) -> list:
             except Exception:
                 logger.exception("RSS_WORKER_FAIL source=%s", source)
 
-    # Deduplicate syndicated copies while preserving publisher provenance.
+    # Merge RSS and Finnhub before deduplication so syndicated copies are not
+    # processed twice and publisher provenance can be retained.
+    items.extend(_fetch_finnhub_general_news())
     unique = {}
     for item in items:
         key = _make_id(item["url"], item["title"])
         unique.setdefault(key, item)
     result = list(unique.values())
-    result.extend(_fetch_finnhub_general_news())
     _attach_corroborating_sources(result)
     result.sort(key=lambda item: item.get("published_at") or "", reverse=True)
     logger.info(
