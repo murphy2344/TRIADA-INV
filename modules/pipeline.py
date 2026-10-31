@@ -167,6 +167,12 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
         if analysis is None:
             await _set_news_state(item.get("id"), "failed")
             return False
+        analysis["_news_id"] = item.get("id", "")
+        analysis["_source"] = item.get("source", "")
+        analysis["_source_count"] = int(item.get("source_count") or 1)
+        analysis["_corroborating_sources"] = item.get("corroborating_sources") or []
+        analysis["_url"] = item.get("url", "")
+        analysis["_raw_title"] = title
         if not _is_relevant(analysis):
             await _set_news_state(item.get("id"), "skipped", analysis=analysis, post_type="BREAKING")
             logger.info("Skipped (not relevant): %s", title[:60])
