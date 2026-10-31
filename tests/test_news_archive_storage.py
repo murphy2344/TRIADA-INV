@@ -96,7 +96,7 @@ class PendingNewsQueueTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(items[0]["id"], "news-2")
         self.assertEqual(items[0]["source_count"], 2)
         self.assertEqual(items[0]["corroborating_sources"], ["Publisher A", "Publisher B"])
-        self.assertIn("processing_status = 'collected'", db.statements[0][0])
+        self.assertIn("processing_status IN ('collected', 'ready_to_publish')", db.statements[0][0])
 
 
 class EventFingerprintTests(unittest.TestCase):
