@@ -80,6 +80,7 @@ class NewsArchiveStorageTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(db.committed)
         sql, params = db.statements[0]
         self.assertIn("analysis_json = COALESCE", sql)
+        self.assertIn("retry_count = COALESCE(retry_count, 0)", sql)
         self.assertIn("ФРС", params[1])
         self.assertEqual(params[0], "analyzed")
         self.assertEqual(params[-1], "news-1")
@@ -89,14 +90,17 @@ class PendingNewsQueueTests(unittest.IsolatedAsyncioTestCase):
     async def test_pending_news_restores_source_provenance(self):
         db = FakeDatabase()
         db.rows = [("news-2", "Fed decision", "Publisher", "https://example.com/2",
-                    "Summary", "2026-10-31T12:00:00+00:00", 2, '["Publisher A", "Publisher B"]', None)]
+                    "Summary", "2026-10-31T12:00:00+00:00", 2, '["Publisher A", "Publisher B"]', 1, None)]
         with patch.object(storage.db_compat, "connect", return_value=db):
             items = await storage.get_pending_news(limit=25)
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["id"], "news-2")
         self.assertEqual(items[0]["source_count"], 2)
         self.assertEqual(items[0]["corroborating_sources"], ["Publisher A", "Publisher B"])
-        self.assertIn("processing_status IN ('collected', 'ready_to_publish')", db.statements[0][0])
+        self.assertEqual(items[0]["retry_count"], 1)
+        self.assertIn("processing_status = 'failed'", db.statements[0][0])
+        self.assertIn("COALESCE(retry_count, 0) < 3", db.statements[0][0])
+        self.assertIn("processed_at <= ?", db.statements[0][0])
 
 
 class EventFingerprintTests(unittest.TestCase):
