@@ -79,13 +79,15 @@ async def _get_media(
     return photo
 
 
-async def _archive_news_items(items: list[dict]) -> None:
+async def _archive_news_items(items: list[dict]) -> bool:
     if not items:
-        return
+        return True
     try:
         await storage.archive_news_items(items)
+        return True
     except Exception:
         logger.exception("NEWS_ARCHIVE_FAILED items=%d", len(items))
+        return False
 
 
 async def _set_news_state(news_id: str, status: str, analysis: dict | None = None, post_type: str | None = None) -> None:
@@ -236,13 +238,11 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
 
 async def run_breaking(bot, admin_id: str = None):
     collected = await asyncio.to_thread(news_sources.fetch_news, 2)
-    await _archive_news_items(collected)
+    archive_ok = await _archive_news_items(collected)
     try:
-        pending = await storage.get_pending_news(limit=100)
+        pending = await storage.get_pending_news(limit=100) if archive_ok else collected
     except Exception:
         logger.exception("NEWS_QUEUE_READ_FAILED; falling back to current collection")
-        pending = collected
-    if not pending:
         pending = collected
     news_list = await asyncio.to_thread(news_sources.fetch_breaking_news, 2, pending)
     logger.info("NEWS_QUEUE pending=%d fetched=%d", len(pending), len(collected))
