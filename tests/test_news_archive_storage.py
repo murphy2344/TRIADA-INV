@@ -89,7 +89,7 @@ class PendingNewsQueueTests(unittest.IsolatedAsyncioTestCase):
     async def test_pending_news_restores_source_provenance(self):
         db = FakeDatabase()
         db.rows = [("news-2", "Fed decision", "Publisher", "https://example.com/2",
-                    "Summary", "2026-10-31T12:00:00+00:00", 2, '["Publisher A", "Publisher B"]')]
+                    "Summary", "2026-10-31T12:00:00+00:00", 2, '["Publisher A", "Publisher B"]', None)]
         with patch.object(storage.db_compat, "connect", return_value=db):
             items = await storage.get_pending_news(limit=25)
         self.assertEqual(len(items), 1)
