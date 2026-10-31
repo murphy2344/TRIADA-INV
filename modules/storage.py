@@ -655,7 +655,7 @@ async def update_news_processing(
             UPDATE news_items
             SET processing_status = ?, analysis_json = COALESCE(?, analysis_json),
                 post_type = COALESCE(?, post_type),
-                processed_at = CASE WHEN ? IN ('analyzed', 'skipped', 'failed', 'published', 'duplicate')
+                processed_at = CASE WHEN ? IN ('analyzed', 'ready_to_publish', 'skipped', 'failed', 'published', 'duplicate')
                                     THEN CURRENT_TIMESTAMP ELSE processed_at END
             WHERE news_id = ?
             """,
@@ -672,9 +672,9 @@ async def get_pending_news(limit: int = 100) -> list[dict]:
         async with db.execute(
             """
             SELECT news_id, title, source, url, summary, published_at,
-                   source_count, corroborating_sources_json
+                   source_count, corroborating_sources_json, analysis_json
             FROM news_items
-            WHERE processing_status = 'collected'
+            WHERE processing_status IN ('collected', 'ready_to_publish')
             ORDER BY
                 CASE WHEN published_at IS NULL OR published_at = '' THEN 1 ELSE 0 END,
                 published_at DESC,
@@ -690,10 +690,15 @@ async def get_pending_news(limit: int = 100) -> list[dict]:
             corroborating = json.loads(row[7] or "[]")
         except (TypeError, ValueError):
             corroborating = []
+        try:
+            analysis = json.loads(row[8]) if row[8] else None
+        except (TypeError, ValueError):
+            analysis = None
         result.append({
             "id": row[0], "title": row[1], "source": row[2] or "",
             "url": row[3] or "", "summary": row[4] or "",
             "published_at": row[5] or "", "source_count": int(row[6] or 1),
             "corroborating_sources": corroborating if isinstance(corroborating, list) else [],
+            "analysis": analysis if isinstance(analysis, dict) else None,
         })
     return result
