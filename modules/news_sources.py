@@ -287,18 +287,19 @@ def _attach_corroborating_sources(items):
 def fetch_news(limit_per_feed: int = 3) -> list:
     """Collect news from all healthy configured feeds without serial blocking."""
     items = []
-    workers = min(RSS_MAX_WORKERS, len(RSS_FEEDS))
-    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="triada-rss") as pool:
-        futures = {
-            pool.submit(_fetch_one, source, url, limit_per_feed): source
-            for source, url in RSS_FEEDS.items()
-        }
-        for future in as_completed(futures):
-            source = futures[future]
-            try:
-                items.extend(future.result())
-            except Exception:
-                logger.exception("RSS_WORKER_FAIL source=%s", source)
+    if RSS_FEEDS:
+        workers = min(RSS_MAX_WORKERS, len(RSS_FEEDS))
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="triada-rss") as pool:
+            futures = {
+                pool.submit(_fetch_one, source, url, limit_per_feed): source
+                for source, url in RSS_FEEDS.items()
+            }
+            for future in as_completed(futures):
+                source = futures[future]
+                try:
+                    items.extend(future.result())
+                except Exception:
+                    logger.exception("RSS_WORKER_FAIL source=%s", source)
 
     # Merge RSS and Finnhub before deduplication so syndicated copies are not
     # processed twice and publisher provenance can be retained.
