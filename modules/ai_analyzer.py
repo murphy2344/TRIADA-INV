@@ -81,6 +81,10 @@ there is a direct, specific financial-market impact. Skip corporate announcement
 concrete numbers, dates or market-relevant action. Unconfirmed information has confidence
 <= 0.3 and source_reliability="rumor". Skip events older than 7 days. Never invent numbers.
 If uncertain, use neutral and confidence below 0.5.
+If the input includes a list of corroborating publishers, treat it as a discovery
+signal only: syndicated copies may not be independent confirmation. Do not raise
+confidence or mark a claim confirmed solely because multiple headlines look alike.
+Separate verified facts, reported claims, and your own market-impact hypotheses.
 
 CATEGORIES: macro, earnings, geopolitics, corporate, central_bank, commodity, regulatory, bonds.
 IMPACT: critical (>2%), high (1-2%), medium (0.5-1%), low (<0.5%).
@@ -415,7 +419,15 @@ def analyze_batch(news_items: list, category: str = "HOURLY") -> list:
             logger.info("AI_PREFILTER skipped duplicate title=%s", title[:100])
             continue
         seen.append((_title_key(title), _title_tokens(title)))
+        source_context = ", ".join(item.get("corroborating_sources") or [])
+        source_count = int(item.get("source_count") or 1)
         text = f"{title}. {item.get('summary', '')}"
+        if source_context:
+            text += (
+                f"\nПубликации/источники по похожему событию: {source_context}."
+                f" Число различных доменов: {source_count}. "
+                "Это не гарантирует независимое подтверждение."
+            )
         analysis = analyze(text, category)
         if analysis and analysis.get("relevant") is not False:
             analysis["_source"] = item.get("source", "")
