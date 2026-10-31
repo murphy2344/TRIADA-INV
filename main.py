@@ -997,7 +997,7 @@ async def main():
           # Render can overlap old/new processes during a deploy. Wait for
           # the old process to release the lock instead of causing Telegram's
           # 409 Conflict by starting a second getUpdates request.
-          for _ in range(60):
+          for _ in range(90):
               polling_lock_acquired = await dedup.acquire_lock(
                   polling_lock_name, polling_owner, ttl=120
               )
@@ -1012,12 +1012,12 @@ async def main():
               # __aexit__ does not raise a second "Application is still running"
               # error and obscure the actual lock-contention failure.
               logger.error(
-                  "Telegram polling lock is busy for 120s; stopping this instance "
+                  "Telegram polling lock is busy for 180s; stopping this instance "
                   "without starting a second getUpdates loop"
               )
               await application.stop()
               raise RuntimeError(
-                  "Telegram polling lock is busy for 120s; refusing to start a second getUpdates loop"
+                  "Telegram polling lock is busy for 180s; refusing to start a second getUpdates loop"
               )
 
           async def renew_polling_lock():

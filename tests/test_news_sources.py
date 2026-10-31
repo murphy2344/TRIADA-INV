@@ -113,5 +113,19 @@ class BreakingNewsPriorityTests(unittest.TestCase):
         self.assertEqual([item['id'] for item in selected], ['newer'])
 
 
+class GlobalMarketScopeTests(unittest.TestCase):
+    def test_excludes_russian_equity_market_news(self):
+        item = {'title': 'Russia stocks lower at close; MOEX Russia Index unchanged', 'summary': ''}
+        self.assertTrue(news_sources.is_excluded_russian_market_story(item))
+
+    def test_excludes_ruble_market_news(self):
+        item = {'title': 'Ruble weakens against the dollar', 'summary': ''}
+        self.assertTrue(news_sources.is_excluded_russian_market_story(item))
+
+    def test_keeps_geopolitical_news_with_global_market_impact(self):
+        item = {'title': 'New sanctions on Russia raise global energy risk', 'summary': ''}
+        self.assertFalse(news_sources.is_excluded_russian_market_story(item))
+
+
 if __name__ == "__main__":
     unittest.main()
