@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import feedparser
 import hashlib
 import logging
+import re
 import threading
 import time
 import requests
@@ -17,6 +18,18 @@ import requests
 from config.config import RSS_FEEDS, FINNHUB_API_KEY
 
 logger = logging.getLogger(__name__)
+
+_RUSSIAN_MARKET_STORY = re.compile(
+    r"\\b(?:MOEX|IMOEX|RTS\\s+index|Russian stocks|Russia stocks|Russian equities|"
+    r"Russian stock market|Moscow Exchange|MICEX|RUB|ruble|rouble)\\b",
+    re.IGNORECASE,
+)
+
+
+def is_excluded_russian_market_story(item: dict) -> bool:
+    """Exclude Russian exchange/currency coverage, but retain geopolitics affecting global markets."""
+    text = f"{item.get('title', '')} {item.get('summary', '')}"
+    return bool(_RUSSIAN_MARKET_STORY.search(text))
 
 RSS_TIMEOUT_SECONDS = 8
 RSS_FAILURE_COOLDOWN_SECONDS = 15 * 60
@@ -273,6 +286,11 @@ def fetch_news(limit_per_feed: int = 3) -> list:
     # Merge RSS and Finnhub before deduplication so syndicated copies are not
     # processed twice and publisher provenance can be retained.
     items.extend(_fetch_finnhub_general_news())
+    before_scope_filter = len(items)
+    items = [item for item in items if not is_excluded_russian_market_story(item)]
+    excluded_count = before_scope_filter - len(items)
+    if excluded_count:
+        logger.info("NEWS_SCOPE_FILTERED russian_market_items=%d", excluded_count)
     unique = {}
     for item in items:
         key = _make_id(item["url"], item["title"])
@@ -298,6 +316,7 @@ def fetch_breaking_news(limit_per_feed: int = 2, items: list[dict] | None = None
         "jobs report", "earnings", "tariff", "opec", "bank failure",
     )
     all_news = items if items is not None else fetch_news(limit_per_feed)
+    all_news = [item for item in all_news if not is_excluded_russian_market_story(item)]
     scored = []
     for item in all_news:
         headline = (str(item.get("title") or "") + " " + str(item.get("summary") or "")).lower()
