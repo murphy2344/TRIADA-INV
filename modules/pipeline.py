@@ -79,6 +79,26 @@ async def _get_media(
     return photo
 
 
+async def _archive_news_items(items: list[dict]) -> None:
+    if not items:
+        return
+    try:
+        await storage.archive_news_items(items)
+    except Exception:
+        logger.exception("NEWS_ARCHIVE_FAILED items=%d", len(items))
+
+
+async def _persist_analysis_results(analyses: list[dict], status: str = "analyzed") -> None:
+    for analysis in analyses or []:
+        news_id = analysis.get("_news_id")
+        if not news_id:
+            continue
+        try:
+            await storage.update_news_processing(news_id, status, analysis=analysis, post_type=analysis.get("post_type") or status)
+        except Exception:
+            logger.exception("NEWS_PROCESSING_STATE_FAILED news_id=%s", news_id)
+
+
 async def _track_recommendation(analysis: dict):
     """Сохраняет рекомендацию с текущей ценой для трек-рекорда."""
     ticker = analysis.get("ticker")
@@ -125,6 +145,7 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
         return False
 
     try:
+        await _archive_news_items([item])
         if await dedup.is_duplicate(item["id"], item["title"]):
             return False
 
@@ -137,10 +158,15 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
                 "Похожие заголовки не являются самостоятельным подтверждением."
             )
         analysis = await asyncio.to_thread(ai_analyzer.analyze, text, "BREAKING")
+        if analysis is None:
+            await storage.update_news_processing(item.get("id"), "failed")
+            return False
         if not _is_relevant(analysis):
+            await storage.update_news_processing(item.get("id"), "skipped", analysis=analysis, post_type="BREAKING")
             logger.info("Skipped (not relevant): %s", title[:60])
             return False
 
+        await storage.update_news_processing(item.get("id"), "analyzed", analysis=analysis, post_type="BREAKING")
         subject_en = analysis.get("subject_en", "")
         category = analysis.get("category", "market_move")
         if await dedup.is_duplicate_event(subject_en, category):
@@ -188,6 +214,7 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
             logger.warning("BREAKING published with fallback: %s", send_detail)
 
         await storage.mark_published(item["id"], item["title"], source, url, "BREAKING")
+        await storage.update_news_processing(item.get("id"), "published", analysis=analysis, post_type="BREAKING")
         await dedup.mark_as_published(item["id"], item["title"])
         await dedup.mark_event_published(subject_en, category)
         await storage.increment_stats()
@@ -198,7 +225,9 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
 
 
 async def run_breaking(bot, admin_id: str = None):
-    news_list = await asyncio.to_thread(news_sources.fetch_breaking_news, 2)
+    collected = await asyncio.to_thread(news_sources.fetch_news, 2)
+    await _archive_news_items(collected)
+    news_list = await asyncio.to_thread(news_sources.fetch_breaking_news, 2, collected)
 
     # Filter repeated headlines before AI and bound work per two-minute poll.
     unique_items = []
@@ -241,6 +270,7 @@ async def run_telegram_monitor(bot, admin_id: str = None) -> int:
 
 async def run_hourly(bot, admin_id: str = None):
     news_list = await asyncio.to_thread(news_sources.fetch_news, 3)
+    await _archive_news_items(news_list)
     fresh = []
     for item in news_list:
         if not await dedup.is_duplicate(item["id"], item["title"]):
@@ -252,6 +282,7 @@ async def run_hourly(bot, admin_id: str = None):
         return 0
 
     analyses = await asyncio.to_thread(ai_analyzer.analyze_batch, fresh, "HOURLY")
+    await _persist_analysis_results(analyses)
     if not analyses:
         if admin_id:
             await telegram_sender.notify_admin(bot, admin_id, "❌ Часовой обзор: нет релевантных новостей.")
@@ -292,6 +323,7 @@ async def run_hourly(bot, admin_id: str = None):
 
 async def run_morning(bot, admin_id: str = None):
     news_list = await asyncio.to_thread(news_sources.fetch_news, 4)
+    await _archive_news_items(news_list)
     fresh = []
     for item in news_list:
         if not await dedup.is_duplicate(item["id"], item["title"]):
@@ -304,6 +336,7 @@ async def run_morning(bot, admin_id: str = None):
     date_str = now.strftime("%d %B %Y")
 
     analyses       = await asyncio.to_thread(ai_analyzer.analyze_batch, fresh, "MORNING") if fresh else []
+    await _persist_analysis_results(analyses)
     header, body   = formatter.fmt_morning(analyses, date_str, fng)
 
     # Add Market Snapshot to morning review
@@ -336,6 +369,7 @@ async def run_morning(bot, admin_id: str = None):
 
 async def run_evening(bot, admin_id: str = None):
     news_list = await asyncio.to_thread(news_sources.fetch_news, 4)
+    await _archive_news_items(news_list)
     fresh = []
     for item in news_list:
         if not await dedup.is_duplicate(item["id"], item["title"]):
@@ -348,6 +382,7 @@ async def run_evening(bot, admin_id: str = None):
     date_str = now.strftime("%d %B %Y")
 
     analyses     = await asyncio.to_thread(ai_analyzer.analyze_batch, fresh, "EVENING") if fresh else []
+    await _persist_analysis_results(analyses)
     header, body = formatter.fmt_evening(analyses, date_str, fng)
 
     # Add Top Movers to evening review
@@ -379,7 +414,9 @@ async def run_evening(bot, admin_id: str = None):
 
 async def run_weekly(bot, admin_id: str = None):
     news_list = await asyncio.to_thread(news_sources.fetch_news, 5)
+    await _archive_news_items(news_list)
     analyses  = await asyncio.to_thread(ai_analyzer.analyze_batch, news_list[:5], "WEEKLY") if news_list else []
+    await _persist_analysis_results(analyses)
     fng       = await _get_fear_greed()
     accuracy  = await storage.get_accuracy_stats(days=7)
     header, body = formatter.fmt_weekly(analyses, fng, accuracy)
@@ -395,7 +432,9 @@ async def run_weekly(bot, admin_id: str = None):
 
 async def run_monthly(bot, admin_id: str = None):
     news_list = await asyncio.to_thread(news_sources.fetch_news, 6)
+    await _archive_news_items(news_list)
     analyses  = await asyncio.to_thread(ai_analyzer.analyze_batch, news_list[:6], "MONTHLY") if news_list else []
+    await _persist_analysis_results(analyses)
     header, body = formatter.fmt_monthly(analyses)
     photo     = "assets/stubs/monthly.jpg"
     ok        = await telegram_sender.send_two_messages(
