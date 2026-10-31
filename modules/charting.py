@@ -42,8 +42,6 @@ CHART_IMG_SYMBOL_MAP = {
     "EURUSD=X": "FX:EURUSD",
     "GBPUSD=X": "FX:GBPUSD",
     "JPY=X": "FX:USDJPY",
-    "RUB=X": "FX:USDRUB",
-    "USDRUB=X": "FX:USDRUB",
     "DX-Y.NYB": "TVC:DXY",
     "BTC-USD": "BINANCE:BTCUSDT",
     "ETH-USD": "BINANCE:ETHUSDT",
@@ -84,7 +82,6 @@ FINVIZ_TICKER_MAP = {
     "SI=F": "SI",   # Silver futures
     "EURUSD=X": "EURUSD",
     "DX-Y.NYB": "DX",
-    "RUB=X": None,  # Not on Finviz
     "BTC-USD": "BTCUSD",
     "ETH-USD": "ETHUSD",
 }
@@ -614,8 +611,6 @@ _FINNHUB_SYMBOL_MAP = {
     "EURUSD=X": "OANDA:EUR_USD",
     "GBPUSD=X": "OANDA:GBP_USD",
     "JPY=X": "OANDA:USD_JPY",
-    "USDRUB=X": "OANDA:USD_RUB",
-    "RUB=X": "OANDA:USD_RUB",
     "BTC-USD": "BINANCE:BTCUSDT",
     "ETH-USD": "BINANCE:ETHUSDT",
 }
@@ -623,8 +618,6 @@ _TWELVE_DATA_SYMBOL_MAP = {
     "EURUSD=X": "EUR/USD",
     "GBPUSD=X": "GBP/USD",
     "JPY=X": "USD/JPY",
-    "USDRUB=X": "USD/RUB",
-    "RUB=X": "USD/RUB",
     "GC=F": "XAU/USD",
     "SI=F": "XAG/USD",
     "CL=F": "WTI",
