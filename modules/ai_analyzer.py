@@ -53,6 +53,11 @@ def _set_provider_cooldown(provider: str, model: str, exc: Exception, code: str)
         seconds = 6 * 60 * 60 if ("tokens per day" in message or "tpd" in message) else 10 * 60
     elif code == "503" or "503" in message or "service unavailable" in message:
         seconds = 2 * 60
+    elif code == "TIMEOUT" or "timeout" in message or "timed out" in message:
+        # Avoid waiting through the full request timeout on every news cycle
+        # when a provider is temporarily slow. The fallback chain still runs
+        # immediately for the current analysis; only later calls are skipped.
+        seconds = 60
     else:
         return
     key = (provider, model)
