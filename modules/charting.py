@@ -247,7 +247,11 @@ _YFINANCE_COOLDOWN_REASON = ""
 _YFINANCE_COOLDOWN_LOGGED = False
 _YFINANCE_COOLDOWN_SECONDS = 120
 _YFINANCE_RATE_LIMIT_SECONDS = 600
-_YFINANCE_LOCK = threading.Lock()\n# Empty history is usually symbol-specific (market closed / unsupported ticker),\n# so it must not pause every other instrument. Keep this cache bounded.\n_YFINANCE_SYMBOL_COOLDOWNS: dict[str, float] = {}\n_YFINANCE_SYMBOL_COOLDOWN_SECONDS = 300
+_YFINANCE_LOCK = threading.Lock()
+# Empty history is usually symbol-specific (market closed / unsupported ticker),
+# so it must not pause every other instrument. Keep this cache bounded.
+_YFINANCE_SYMBOL_COOLDOWNS: dict[str, float] = {}
+_YFINANCE_SYMBOL_COOLDOWN_SECONDS = 300
 
 
 def _fetch_yfinance_history(
