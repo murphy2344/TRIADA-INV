@@ -97,3 +97,4 @@ CREATE INDEX IF NOT EXISTS idx_news_items_status ON news_items(processing_status
 
 ALTER TABLE news_items ADD COLUMN IF NOT EXISTS source_count INTEGER DEFAULT 1;
 ALTER TABLE news_items ADD COLUMN IF NOT EXISTS corroborating_sources_json TEXT;
+ALTER TABLE news_items ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0;
