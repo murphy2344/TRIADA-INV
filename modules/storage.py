@@ -51,7 +51,8 @@ async def init_db():
                 processed_at TIMESTAMP,
                 processing_status TEXT DEFAULT 'collected',
                 analysis_json TEXT,
-                post_type TEXT
+                post_type TEXT,
+                retry_count INTEGER DEFAULT 0
             )
         """)
         async with db.execute("PRAGMA table_info(news_items)") as cursor:
