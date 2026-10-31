@@ -1,12 +1,14 @@
 # TRIADA INVESTING Bot — Эталонная спецификация
 
+**Рыночный охват:** только глобальные рынки. MOEX, IMOEX, RTS и RUB-инструменты не входят в продуктовый scope.
+
 ## Структура файлов
 ```
 main.py                  — точка входа, admin-команды (/start /status /test), Flask dashboard
 config/config.py         — все настройки из .env / Environment Variables
 modules/
-  news_sources.py        — сбор из RSS (только финансовые ленты)
-  ai_analyzer.py          — Gemini JSON-анализ (Groq fallback)
+  news_sources.py        — сбор глобальных RSS-лент и Finnhub с кэшем, резервированием и диагностикой источников
+  ai_analyzer.py          — структурированный AI-анализ с цепочкой Groq/Gemini fallback
   critic.py               — независимый AI-критик через Gemini (Groq fallback)
   charting.py             — TradingView/Chart-IMG → Finviz → yfinance+matplotlib
   media.py                — статья → Wikimedia → Google CSE → Pexels/Pixabay → заглушка
@@ -15,7 +17,7 @@ modules/
   telegram_sender.py       — отправка в канал / админу
   pipeline.py               — связывает всё вместе + трек-рекорд рекомендаций
   scheduler.py              — APScheduler расписание всех задач
-  storage.py                — SQLite (история, статистика, рекомендации)
+  storage.py                — PostgreSQL/Neon + SQLite fallback, архив новостей, история и рекомендации
 .env.example
 render.yaml                — конфиг деплоя на Render.com
 SPEC.md                     — этот файл (эталон, сверяться перед правками)
