@@ -255,6 +255,32 @@ _YFINANCE_LOCK = threading.Lock()
 # so it must not pause every other instrument. Keep this cache bounded.
 _YFINANCE_SYMBOL_COOLDOWNS: dict[str, float] = {}
 _YFINANCE_SYMBOL_COOLDOWN_SECONDS = 300
+_YFINANCE_SYMBOL_COOLDOWN_MAX_ENTRIES = 256
+
+
+def _set_yfinance_symbol_cooldown(ticker: str, now: float | None = None) -> None:
+    """Store a symbol-specific failure cooldown in a bounded cache.
+
+    Expired entries are pruned on writes; if the cache is still full, evict
+    the entry that expires first before adding another ticker.
+    Caller holds _YFINANCE_LOCK.
+    """
+    if now is None:
+        now = time.monotonic()
+    expired = [
+        symbol for symbol, expires_at in _YFINANCE_SYMBOL_COOLDOWNS.items()
+        if expires_at <= now
+    ]
+    for symbol in expired:
+        _YFINANCE_SYMBOL_COOLDOWNS.pop(symbol, None)
+
+    if ticker not in _YFINANCE_SYMBOL_COOLDOWNS and (
+        len(_YFINANCE_SYMBOL_COOLDOWNS) >= _YFINANCE_SYMBOL_COOLDOWN_MAX_ENTRIES
+    ):
+        oldest = min(_YFINANCE_SYMBOL_COOLDOWNS, key=_YFINANCE_SYMBOL_COOLDOWNS.get)
+        _YFINANCE_SYMBOL_COOLDOWNS.pop(oldest, None)
+
+    _YFINANCE_SYMBOL_COOLDOWNS[ticker] = now + _YFINANCE_SYMBOL_COOLDOWN_SECONDS
 
 
 def _fetch_yfinance_history(
@@ -341,7 +367,7 @@ def _fetch_yfinance_history(
                     ticker, _YFINANCE_RATE_LIMIT_SECONDS,
                 )
             else:
-                _YFINANCE_SYMBOL_COOLDOWNS[ticker] = time.monotonic() + _YFINANCE_SYMBOL_COOLDOWN_SECONDS
+                _set_yfinance_symbol_cooldown(ticker)
                 logger.warning(
                     "Yahoo Finance history failed for %s (%s); cooling down this symbol for %ss",
                     ticker, type(exc).__name__, _YFINANCE_SYMBOL_COOLDOWN_SECONDS,
@@ -361,11 +387,7 @@ def _fetch_yfinance_history(
             return None
 
         if data is None or data.empty:
-            _YFINANCE_SYMBOL_COOLDOWNS[ticker] = time.monotonic() + _YFINANCE_SYMBOL_COOLDOWN_SECONDS
-            # Bound the negative cache so dynamic user-supplied tickers cannot grow it indefinitely.
-            if len(_YFINANCE_SYMBOL_COOLDOWNS) > 256:
-                oldest = min(_YFINANCE_SYMBOL_COOLDOWNS, key=_YFINANCE_SYMBOL_COOLDOWNS.get)
-                _YFINANCE_SYMBOL_COOLDOWNS.pop(oldest, None)
+            _set_yfinance_symbol_cooldown(ticker)
             logger.warning(
                 "Yahoo Finance returned empty history for %s; cooling down this symbol for %ss",
                 ticker, _YFINANCE_SYMBOL_COOLDOWN_SECONDS,
