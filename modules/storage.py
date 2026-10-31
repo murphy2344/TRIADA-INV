@@ -60,6 +60,8 @@ async def init_db():
             await db.execute("ALTER TABLE news_items ADD COLUMN source_count INTEGER DEFAULT 1")
         if "corroborating_sources_json" not in news_columns:
             await db.execute("ALTER TABLE news_items ADD COLUMN corroborating_sources_json TEXT")
+        if "retry_count" not in news_columns:
+            await db.execute("ALTER TABLE news_items ADD COLUMN retry_count INTEGER DEFAULT 0")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_news_items_published_at ON news_items(published_at)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_news_items_status ON news_items(processing_status, last_seen_at)")
         await db.execute("""
@@ -655,11 +657,12 @@ async def update_news_processing(
             UPDATE news_items
             SET processing_status = ?, analysis_json = COALESCE(?, analysis_json),
                 post_type = COALESCE(?, post_type),
+                retry_count = COALESCE(retry_count, 0) + CASE WHEN ? = 'failed' THEN 1 ELSE 0 END,
                 processed_at = CASE WHEN ? IN ('analyzed', 'ready_to_publish', 'skipped', 'failed', 'published', 'duplicate')
                                     THEN CURRENT_TIMESTAMP ELSE processed_at END
             WHERE news_id = ?
             """,
-            (status, payload, post_type, status, news_id),
+            (status, payload, post_type, status, status, news_id),
         )
         await db.commit()
 
@@ -670,13 +673,18 @@ async def get_pending_news(limit: int = 100) -> list[dict]:
     from datetime import datetime, timedelta, timezone
     safe_limit = max(1, min(int(limit), 500))
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=72)).isoformat()
+    retry_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M:%S")
     async with db_compat.connect(DB_PATH) as db:
         async with db.execute(
             """
             SELECT news_id, title, source, url, summary, published_at,
-                   source_count, corroborating_sources_json, analysis_json
+                   source_count, corroborating_sources_json, retry_count, analysis_json
             FROM news_items
-            WHERE processing_status IN ('collected', 'ready_to_publish')
+            WHERE (
+                processing_status IN ('collected', 'ready_to_publish')
+                OR (processing_status = 'failed' AND COALESCE(retry_count, 0) < 3
+                    AND processed_at <= ?)
+            )
               AND (published_at IS NULL OR published_at = '' OR published_at >= ?)
             ORDER BY
                 CASE WHEN published_at IS NULL OR published_at = '' THEN 1 ELSE 0 END,
@@ -684,7 +692,7 @@ async def get_pending_news(limit: int = 100) -> list[dict]:
                 first_seen_at ASC
             LIMIT ?
             """,
-            (cutoff, safe_limit),
+            (retry_cutoff, cutoff, safe_limit),
         ) as cursor:
             rows = await cursor.fetchall()
     result = []
@@ -694,13 +702,14 @@ async def get_pending_news(limit: int = 100) -> list[dict]:
         except (TypeError, ValueError):
             corroborating = []
         try:
-            analysis = json.loads(row[8]) if row[8] else None
+            analysis = json.loads(row[9]) if row[9] else None
         except (TypeError, ValueError):
             analysis = None
         result.append({
             "id": row[0], "title": row[1], "source": row[2] or "",
             "url": row[3] or "", "summary": row[4] or "",
             "published_at": row[5] or "", "source_count": int(row[6] or 1),
+            "retry_count": int(row[8] or 0),
             "corroborating_sources": corroborating if isinstance(corroborating, list) else [],
             "analysis": analysis if isinstance(analysis, dict) else None,
         })
