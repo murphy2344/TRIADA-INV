@@ -74,6 +74,60 @@ class ChartImgTests(unittest.TestCase):
         self.assertIsNone(result)
 
 
+class TrackRecordQuoteFallbackTests(unittest.TestCase):
+    @patch.object(charting, "_fetch_yfinance_history", return_value=None)
+    @patch.object(charting, "_fetch_finnhub_price", return_value=123.45)
+    @patch.object(charting, "_fetch_twelve_data_price", return_value=456.78)
+    def test_finnhub_is_preferred_when_yahoo_has_no_price(self, twelve, finnhub, yahoo):
+        self.assertEqual(charting.get_current_price("AAPL"), 123.45)
+        finnhub.assert_called_once_with("AAPL")
+        twelve.assert_not_called()
+
+    @patch.object(charting, "_fetch_yfinance_history", return_value=None)
+    @patch.object(charting, "_fetch_finnhub_price", return_value=None)
+    @patch.object(charting, "_fetch_twelve_data_price", return_value=2345.6)
+    def test_twelve_data_is_second_fallback(self, twelve, finnhub, yahoo):
+        self.assertEqual(charting.get_current_price("GC=F"), 2345.6)
+        finnhub.assert_called_once_with("GC=F")
+        twelve.assert_called_once_with("GC=F")
+
+    @patch.object(charting, "_fetch_yfinance_history", return_value=None)
+    @patch.object(charting, "_fetch_fallback_price", return_value=None)
+    def test_missing_all_quotes_does_not_fabricate_entry_price(self, fallback, yahoo):
+        self.assertIsNone(charting.get_current_price("AAPL"))
+        fallback.assert_called_once_with("AAPL")
+
+    def test_quote_price_rejects_zero_nan_and_infinity(self):
+        self.assertIsNone(charting._valid_quote_price(0))
+        self.assertIsNone(charting._valid_quote_price(float("nan")))
+        self.assertIsNone(charting._valid_quote_price(float("inf")))
+        self.assertEqual(charting._valid_quote_price("12.5"), 12.5)
+
+    @patch.object(charting, "requests")
+    @patch.object(charting, "FINNHUB_API_KEY", "finnhub-test")
+    def test_finnhub_maps_yahoo_fx_symbols(self, requests_mock):
+        response = Mock()
+        response.json.return_value = {"c": 149.25, "pc": 148.9}
+        requests_mock.get.return_value = response
+        self.assertEqual(charting._fetch_finnhub_price("JPY=X"), 149.25)
+        self.assertEqual(
+            requests_mock.get.call_args.kwargs["params"]["symbol"],
+            "OANDA:USD_JPY",
+        )
+
+    @patch.object(charting, "requests")
+    @patch.object(charting, "TWELVE_DATA_API_KEY", "twelve-test")
+    def test_twelve_data_maps_gold_symbol(self, requests_mock):
+        response = Mock()
+        response.json.return_value = {"close": "2350.10"}
+        requests_mock.get.return_value = response
+        self.assertEqual(charting._fetch_twelve_data_price("GC=F"), 2350.10)
+        self.assertEqual(
+            requests_mock.get.call_args.kwargs["params"]["symbol"],
+            "XAU/USD",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
 
