@@ -288,19 +288,26 @@ def fetch_news(limit_per_feed: int = 3) -> list:
 
 
 def fetch_breaking_news(limit_per_feed: int = 2, items: list[dict] | None = None) -> list:
-    breaking_keywords = (
-        "breaking", "urgent", "срочно", "flash", "alert", "emergency",
-        "crisis", "crash", "collapse", "sanctions", "war", "attack",
-        "recession", "default", "fed", "rate", "powell", "tariff",
-        "inflation", "earnings", "bank", "central bank", "опек",
+    """Select a small, priority-ranked slice from the durable pending queue."""
+    urgent_keywords = (
+        "breaking", "urgent", "flash", "emergency", "crisis", "crash",
+        "collapse", "default", "war", "attack", "sanctions", "recession",
+    )
+    high_impact_keywords = (
+        "fed", "powell", "central bank", "rate decision", "inflation", "cpi",
+        "jobs report", "earnings", "tariff", "opec", "bank failure",
     )
     all_news = items if items is not None else fetch_news(limit_per_feed)
-    breaking = []
+    scored = []
     for item in all_news:
-        text = (item["title"] + " " + item["summary"]).lower()
-        if any(keyword in text for keyword in breaking_keywords):
-            breaking.append(item)
-    return breaking if breaking else all_news[:2]
+        headline = (str(item.get("title") or "") + " " + str(item.get("summary") or "")).lower()
+        score = 3 if any(word in headline for word in urgent_keywords) else (
+            2 if any(word in headline for word in high_impact_keywords) else 0
+        )
+        scored.append((score, str(item.get("published_at") or ""), item))
+    scored.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    selected = [row[2] for row in scored[:max(1, limit_per_feed)]]
+    return selected
 
 
 def get_source_health() -> dict:
