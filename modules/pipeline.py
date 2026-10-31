@@ -409,6 +409,7 @@ async def run_evening(bot, admin_id: str = None):
     )
 
     if ok:
+        await _persist_analysis_results(analyses, "published")
         for item in fresh:
             await storage.mark_published(item["id"], item["title"], item["source"], item["url"], "EVENING")
             await dedup.mark_as_published(item["id"], item["title"])
