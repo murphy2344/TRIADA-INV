@@ -20,8 +20,8 @@ from config.config import RSS_FEEDS, FINNHUB_API_KEY
 logger = logging.getLogger(__name__)
 
 _RUSSIAN_MARKET_STORY = re.compile(
-    r"\\b(?:MOEX|IMOEX|RTS\\s+index|Russian stocks|Russia stocks|Russian equities|"
-    r"Russian stock market|Moscow Exchange|MICEX|RUB|ruble|rouble)\\b",
+    r"\b(?:MOEX|IMOEX|RTS\s+index|Russian stocks|Russia stocks|Russian equities|
+    r"Russian stock market|Moscow Exchange|MICEX|RUB|ruble|rouble)\b",
     re.IGNORECASE,
 )
 
