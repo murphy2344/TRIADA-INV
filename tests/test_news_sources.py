@@ -94,5 +94,24 @@ class BreakingNewsQueueReuseTests(unittest.TestCase):
         fetch_news.assert_not_called()
 
 
+class BreakingNewsPriorityTests(unittest.TestCase):
+    def test_urgent_news_is_prioritized_over_routine_earnings(self):
+        items = [
+            {'id': 'routine', 'title': 'Company reports quarterly earnings', 'summary': '', 'published_at': '2026-10-31T13:00:00Z'},
+            {'id': 'urgent', 'title': 'BREAKING: Central bank announces emergency action', 'summary': '', 'published_at': '2026-10-31T10:00:00Z'},
+            {'id': 'market', 'title': 'Inflation data released', 'summary': '', 'published_at': '2026-10-31T12:00:00Z'},
+        ]
+        selected = news_sources.fetch_breaking_news(2, items)
+        self.assertEqual([item['id'] for item in selected], ['urgent', 'market'])
+
+    def test_nonbreaking_queue_still_processes_newest_items(self):
+        items = [
+            {'id': 'older', 'title': 'Company updates product range', 'summary': '', 'published_at': '2026-10-31T10:00:00Z'},
+            {'id': 'newer', 'title': 'Company expands office', 'summary': '', 'published_at': '2026-10-31T13:00:00Z'},
+        ]
+        selected = news_sources.fetch_breaking_news(1, items)
+        self.assertEqual([item['id'] for item in selected], ['newer'])
+
+
 if __name__ == "__main__":
     unittest.main()
