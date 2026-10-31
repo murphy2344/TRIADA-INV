@@ -85,5 +85,14 @@ class NewsSourceCacheTests(unittest.TestCase):
         self.assertIn(self.source, news_sources._feed_retry_after)
 
 
+class BreakingNewsQueueReuseTests(unittest.TestCase):
+    @patch.object(news_sources, 'fetch_news')
+    def test_breaking_filter_reuses_supplied_queue_items(self, fetch_news):
+        items = [{'id': 'q1', 'title': 'Company announces earnings', 'summary': '', 'source': 'A'}]
+        selected = news_sources.fetch_breaking_news(2, items)
+        self.assertEqual(selected, items)
+        fetch_news.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
