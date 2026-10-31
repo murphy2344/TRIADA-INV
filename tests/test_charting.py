@@ -78,7 +78,7 @@ class TrackRecordQuoteFallbackTests(unittest.TestCase):
     @patch.object(charting, "_fetch_yfinance_history", return_value=None)
     @patch.object(charting, "_fetch_finnhub_price", return_value=123.45)
     @patch.object(charting, "_fetch_twelve_data_price", return_value=456.78)
-    def test_finnhub_is_preferred_when_yahoo_has_no_price(self, yahoo, finnhub, twelve):
+    def test_finnhub_is_preferred_when_yahoo_has_no_price(self, twelve, finnhub, yahoo):
         self.assertEqual(charting.get_current_price("AAPL"), 123.45)
         finnhub.assert_called_once_with("AAPL")
         twelve.assert_not_called()
@@ -86,14 +86,14 @@ class TrackRecordQuoteFallbackTests(unittest.TestCase):
     @patch.object(charting, "_fetch_yfinance_history", return_value=None)
     @patch.object(charting, "_fetch_finnhub_price", return_value=None)
     @patch.object(charting, "_fetch_twelve_data_price", return_value=2345.6)
-    def test_twelve_data_is_second_fallback(self, yahoo, finnhub, twelve):
+    def test_twelve_data_is_second_fallback(self, twelve, finnhub, yahoo):
         self.assertEqual(charting.get_current_price("GC=F"), 2345.6)
         finnhub.assert_called_once_with("GC=F")
         twelve.assert_called_once_with("GC=F")
 
     @patch.object(charting, "_fetch_yfinance_history", return_value=None)
     @patch.object(charting, "_fetch_fallback_price", return_value=None)
-    def test_missing_all_quotes_does_not_fabricate_entry_price(self, yahoo, fallback):
+    def test_missing_all_quotes_does_not_fabricate_entry_price(self, fallback, yahoo):
         self.assertIsNone(charting.get_current_price("AAPL"))
         fallback.assert_called_once_with("AAPL")
 
