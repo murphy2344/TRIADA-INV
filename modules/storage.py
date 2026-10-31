@@ -655,7 +655,7 @@ async def update_news_processing(
             UPDATE news_items
             SET processing_status = ?, analysis_json = COALESCE(?, analysis_json),
                 post_type = COALESCE(?, post_type),
-                processed_at = CASE WHEN ? IN ('analyzed', 'skipped', 'failed', 'published')
+                processed_at = CASE WHEN ? IN ('analyzed', 'skipped', 'failed', 'published', 'duplicate')
                                     THEN CURRENT_TIMESTAMP ELSE processed_at END
             WHERE news_id = ?
             """,
