@@ -667,7 +667,9 @@ async def update_news_processing(
 async def get_pending_news(limit: int = 100) -> list[dict]:
     """Return collected news awaiting AI processing, newest market events first."""
     import json
+    from datetime import datetime, timedelta, timezone
     safe_limit = max(1, min(int(limit), 500))
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=72)).isoformat()
     async with db_compat.connect(DB_PATH) as db:
         async with db.execute(
             """
@@ -675,13 +677,14 @@ async def get_pending_news(limit: int = 100) -> list[dict]:
                    source_count, corroborating_sources_json, analysis_json
             FROM news_items
             WHERE processing_status IN ('collected', 'ready_to_publish')
+              AND (published_at IS NULL OR published_at = '' OR published_at >= ?)
             ORDER BY
                 CASE WHEN published_at IS NULL OR published_at = '' THEN 1 ELSE 0 END,
                 published_at DESC,
                 first_seen_at ASC
             LIMIT ?
             """,
-            (safe_limit,),
+            (cutoff, safe_limit),
         ) as cursor:
             rows = await cursor.fetchall()
     result = []
