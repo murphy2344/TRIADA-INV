@@ -9,10 +9,14 @@ except ModuleNotFoundError as exc:
     raise
 
 
-class FakeDatabase:
-    def __init__(self):
-        self.statements = []
-        self.committed = False
+class FakeCursor:
+    def __init__(self, database):
+        self.database = database
+
+    def __await__(self):
+        async def ready():
+            return self
+        return ready().__await__()
 
     async def __aenter__(self):
         return self
@@ -20,8 +24,25 @@ class FakeDatabase:
     async def __aexit__(self, exc_type, exc, tb):
         return False
 
-    async def execute(self, sql, params=()):
+    async def fetchall(self):
+        return self.database.rows
+
+
+class FakeDatabase:
+    def __init__(self):
+        self.statements = []
+        self.committed = False
+        self.rows = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, sql, params=()):
         self.statements.append((sql, params))
+        return FakeCursor(self)
 
     async def commit(self):
         self.committed = True
@@ -62,6 +83,20 @@ class NewsArchiveStorageTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("ФРС", params[1])
         self.assertEqual(params[0], "analyzed")
         self.assertEqual(params[-1], "news-1")
+
+
+class PendingNewsQueueTests(unittest.IsolatedAsyncioTestCase):
+    async def test_pending_news_restores_source_provenance(self):
+        db = FakeDatabase()
+        db.rows = [("news-2", "Fed decision", "Publisher", "https://example.com/2",
+                    "Summary", "2026-10-31T12:00:00+00:00", 2, '["Publisher A", "Publisher B"]')]
+        with patch.object(storage.db_compat, "connect", return_value=db):
+            items = await storage.get_pending_news(limit=25)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["id"], "news-2")
+        self.assertEqual(items[0]["source_count"], 2)
+        self.assertEqual(items[0]["corroborating_sources"], ["Publisher A", "Publisher B"])
+        self.assertIn("processing_status = 'collected'", db.statements[0][0])
 
 
 class EventFingerprintTests(unittest.TestCase):
