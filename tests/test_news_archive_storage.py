@@ -83,6 +83,7 @@ class NewsArchiveStorageTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("retry_count = COALESCE(retry_count, 0)", sql)
         self.assertIn("ФРС", params[1])
         self.assertEqual(params[0], "analyzed")
+        self.assertEqual(params[3], "analyzed")
         self.assertEqual(params[-1], "news-1")
 
 
