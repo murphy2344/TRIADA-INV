@@ -30,6 +30,49 @@ TICKER_ALIASES = {
 }
 
 # Finviz uses different ticker format for some instruments
+
+# TradingView symbols differ from Yahoo Finance symbols. Explicit mappings avoid
+# sending Yahoo-only suffixes (for example "=F" and "=X") to Chart-IMG.
+CHART_IMG_SYMBOL_MAP = {
+    "GC=F": "COMEX:GC1!",
+    "CL=F": "NYMEX:CL1!",
+    "BZ=F": "ICEEUR:BRN1!",
+    "SI=F": "COMEX:SI1!",
+    "EURUSD=X": "FX:EURUSD",
+    "GBPUSD=X": "FX:GBPUSD",
+    "DX-Y.NYB": "TVC:DXY",
+    "BTC-USD": "BINANCE:BTCUSDT",
+    "ETH-USD": "BINANCE:ETHUSDT",
+    "^GSPC": "SP:SPX",
+    "^IXIC": "NASDAQ:IXIC",
+    "^DJI": "DJ:DJI",
+    "^RUT": "RUSSELL:RUT",
+    "^VIX": "CBOE:VIX",
+    "^TNX": "TVC:US10Y",
+    "^IRX": "TVC:US13W",
+    "^FTSE": "CAPITALCOM:UK100",
+    "^GDAXI": "XETR:DAX",
+    "^N225": "TVC:NI225",
+    "000001.SS": "SSE:000001",
+    "AAPL": "NASDAQ:AAPL",
+    "MSFT": "NASDAQ:MSFT",
+    "NVDA": "NASDAQ:NVDA",
+    "GOOGL": "NASDAQ:GOOGL",
+    "AMZN": "NASDAQ:AMZN",
+    "META": "NASDAQ:META",
+    "TSLA": "NASDAQ:TSLA",
+    "JPM": "NYSE:JPM",
+    "GS": "NYSE:GS",
+    "XOM": "NYSE:XOM",
+    "BRK.B": "NYSE:BRK.B",
+}
+
+
+def chart_img_symbol(ticker: str) -> str:
+    """Translate a Yahoo symbol to a TradingView exchange-qualified symbol."""
+    return CHART_IMG_SYMBOL_MAP.get(ticker, ticker)
+
+
 FINVIZ_TICKER_MAP = {
     "GC=F": "GC",   # Gold futures
     "CL=F": "CL",   # Oil futures
@@ -167,7 +210,7 @@ def _chart_img(ticker: str) -> bytes | None:
     try:
         response = requests.get(
             "https://api.chart-img.com/v1/tradingview/advanced-chart",
-            params={"symbol": ticker, "interval": "1d"},
+            params={"symbol": chart_img_symbol(ticker), "interval": "1d"},
             # v1 uses Bearer authentication; x-api-key is documented for v2.
             headers={
                 "Authorization": f"Bearer {CHART_IMG_API_KEY}",
@@ -201,7 +244,7 @@ _YFINANCE_COOLDOWN_REASON = ""
 _YFINANCE_COOLDOWN_LOGGED = False
 _YFINANCE_COOLDOWN_SECONDS = 120
 _YFINANCE_RATE_LIMIT_SECONDS = 600
-_YFINANCE_LOCK = threading.Lock()
+_YFINANCE_LOCK = threading.Lock()\n# Empty history is usually symbol-specific (market closed / unsupported ticker),\n# so it must not pause every other instrument. Keep this cache bounded.\n_YFINANCE_SYMBOL_COOLDOWNS: dict[str, float] = {}\n_YFINANCE_SYMBOL_COOLDOWN_SECONDS = 300
 
 
 def _fetch_yfinance_history(
@@ -224,6 +267,11 @@ def _fetch_yfinance_history(
 
     with _YFINANCE_LOCK:
         now = time.monotonic()
+        symbol_cooldown = _YFINANCE_SYMBOL_COOLDOWNS.get(ticker, 0.0)
+        if now < symbol_cooldown:
+            return None
+        if symbol_cooldown:
+            _YFINANCE_SYMBOL_COOLDOWNS.pop(ticker, None)
         if now < _YFINANCE_COOLDOWN_UNTIL:
             if not _YFINANCE_COOLDOWN_LOGGED:
                 logger.warning(
@@ -274,14 +322,20 @@ def _fetch_yfinance_history(
                 token in message
                 for token in ("429", "401", "403", "crumb", "rate limit", "too many requests")
             )
-            cooldown = _YFINANCE_RATE_LIMIT_SECONDS if rate_limited else _YFINANCE_COOLDOWN_SECONDS
-            _YFINANCE_COOLDOWN_UNTIL = time.monotonic() + cooldown
-            _YFINANCE_COOLDOWN_REASON = "rate/auth limit" if rate_limited else type(exc).__name__
-            _YFINANCE_COOLDOWN_LOGGED = False
-            logger.warning(
-                "Yahoo Finance history failed for %s (%s); cooling down for %ss",
-                ticker, _YFINANCE_COOLDOWN_REASON, cooldown,
-            )
+            if rate_limited:
+                _YFINANCE_COOLDOWN_UNTIL = time.monotonic() + _YFINANCE_RATE_LIMIT_SECONDS
+                _YFINANCE_COOLDOWN_REASON = "rate/auth limit"
+                _YFINANCE_COOLDOWN_LOGGED = False
+                logger.warning(
+                    "Yahoo Finance history rate/auth failure for %s; cooling down globally for %ss",
+                    ticker, _YFINANCE_RATE_LIMIT_SECONDS,
+                )
+            else:
+                _YFINANCE_SYMBOL_COOLDOWNS[ticker] = time.monotonic() + _YFINANCE_SYMBOL_COOLDOWN_SECONDS
+                logger.warning(
+                    "Yahoo Finance history failed for %s (%s); cooling down this symbol for %ss",
+                    ticker, type(exc).__name__, _YFINANCE_SYMBOL_COOLDOWN_SECONDS,
+                )
             return None
         finally:
             yfinance_logger.removeHandler(crumb_capture)
@@ -297,15 +351,18 @@ def _fetch_yfinance_history(
             return None
 
         if data is None or data.empty:
-            _YFINANCE_COOLDOWN_UNTIL = time.monotonic() + _YFINANCE_COOLDOWN_SECONDS
-            _YFINANCE_COOLDOWN_REASON = "empty history"
-            _YFINANCE_COOLDOWN_LOGGED = False
+            _YFINANCE_SYMBOL_COOLDOWNS[ticker] = time.monotonic() + _YFINANCE_SYMBOL_COOLDOWN_SECONDS
+            # Bound the negative cache so dynamic user-supplied tickers cannot grow it indefinitely.
+            if len(_YFINANCE_SYMBOL_COOLDOWNS) > 256:
+                oldest = min(_YFINANCE_SYMBOL_COOLDOWNS, key=_YFINANCE_SYMBOL_COOLDOWNS.get)
+                _YFINANCE_SYMBOL_COOLDOWNS.pop(oldest, None)
             logger.warning(
-                "Yahoo Finance returned empty history for %s; cooling down for %ss",
-                ticker, _YFINANCE_COOLDOWN_SECONDS,
+                "Yahoo Finance returned empty history for %s; cooling down this symbol for %ss",
+                ticker, _YFINANCE_SYMBOL_COOLDOWN_SECONDS,
             )
             return None
 
+        _YFINANCE_SYMBOL_COOLDOWNS.pop(ticker, None)
         _YFINANCE_COOLDOWN_UNTIL = 0.0
         _YFINANCE_COOLDOWN_REASON = ""
         _YFINANCE_COOLDOWN_LOGGED = False
