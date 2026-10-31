@@ -97,7 +97,7 @@ class BreakingNewsQueueReuseTests(unittest.TestCase):
 class BreakingNewsPriorityTests(unittest.TestCase):
     def test_urgent_news_is_prioritized_over_routine_earnings(self):
         items = [
-            {'id': 'routine', 'title': 'Company reports quarterly earnings', 'summary': '', 'published_at': '2026-10-31T13:00:00Z'},
+            {'id': 'routine', 'title': 'Company reports quarterly earnings', 'summary': '', 'published_at': '2026-10-31T11:00:00Z'},
             {'id': 'urgent', 'title': 'BREAKING: Central bank announces emergency action', 'summary': '', 'published_at': '2026-10-31T10:00:00Z'},
             {'id': 'market', 'title': 'Inflation data released', 'summary': '', 'published_at': '2026-10-31T12:00:00Z'},
         ]
