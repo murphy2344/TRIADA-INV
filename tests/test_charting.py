@@ -15,6 +15,7 @@ class ChartImgTests(unittest.TestCase):
         self.assertEqual(charting.chart_img_symbol("CL=F"), "NYMEX:CL1!")
         self.assertEqual(charting.chart_img_symbol("GC=F"), "COMEX:GC1!")
         self.assertEqual(charting.chart_img_symbol("EURUSD=X"), "FX:EURUSD")
+        self.assertEqual(charting.chart_img_symbol("JPY=X"), "FX:USDJPY")
         self.assertEqual(charting.chart_img_symbol("AAPL"), "NASDAQ:AAPL")
 
     @patch.object(charting, "requests")
