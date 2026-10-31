@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 try:
-    from modules import storage
+    from modules import storage, dedup
 except ModuleNotFoundError as exc:
     if exc.name == "aiosqlite":
         raise unittest.SkipTest("SQLite adapter is not installed")
@@ -62,6 +62,17 @@ class NewsArchiveStorageTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("ФРС", params[1])
         self.assertEqual(params[0], "analyzed")
         self.assertEqual(params[-1], "news-1")
+
+
+class EventFingerprintTests(unittest.TestCase):
+    def test_cyrillic_event_subject_produces_nonempty_fingerprint(self):
+        fingerprint = dedup._event_fingerprint('ФРС сохранила ключевую ставку', 'macro')
+        self.assertEqual(fingerprint, 'macro:фрс сохранила ключевую ставку')
+
+    def test_event_fingerprint_normalizes_punctuation_and_case(self):
+        first = dedup._event_fingerprint('Federal Reserve: Holds Rates!', 'macro')
+        second = dedup._event_fingerprint('federal reserve holds rates', 'macro')
+        self.assertEqual(first, second)
 
 
 if __name__ == "__main__":
