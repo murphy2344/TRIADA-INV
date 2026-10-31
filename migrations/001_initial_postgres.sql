@@ -94,3 +94,6 @@ CREATE TABLE IF NOT EXISTS news_items (
 );
 CREATE INDEX IF NOT EXISTS idx_news_items_published_at ON news_items(published_at);
 CREATE INDEX IF NOT EXISTS idx_news_items_status ON news_items(processing_status, last_seen_at);
+
+ALTER TABLE news_items ADD COLUMN IF NOT EXISTS source_count INTEGER DEFAULT 1;
+ALTER TABLE news_items ADD COLUMN IF NOT EXISTS corroborating_sources_json TEXT;
