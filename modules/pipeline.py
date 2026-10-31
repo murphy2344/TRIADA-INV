@@ -153,6 +153,7 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
     try:
         await _archive_news_items([item])
         if await dedup.is_duplicate(item["id"], item["title"]):
+            await _set_news_state(item.get("id"), "duplicate")
             return False
 
         text = f"{item['title']}. {item.get('summary', '')}"
@@ -176,6 +177,7 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
         subject_en = analysis.get("subject_en", "")
         category = analysis.get("category", "market_move")
         if await dedup.is_duplicate_event(subject_en, category):
+            await _set_news_state(item.get("id"), "duplicate", analysis=analysis, post_type="BREAKING")
             logger.info("Skipped (duplicate event): %s / %s", subject_en, category)
             return False
 
@@ -233,7 +235,15 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
 async def run_breaking(bot, admin_id: str = None):
     collected = await asyncio.to_thread(news_sources.fetch_news, 2)
     await _archive_news_items(collected)
-    news_list = await asyncio.to_thread(news_sources.fetch_breaking_news, 2, collected)
+    try:
+        pending = await storage.get_pending_news(limit=100)
+    except Exception:
+        logger.exception("NEWS_QUEUE_READ_FAILED; falling back to current collection")
+        pending = collected
+    if not pending:
+        pending = collected
+    news_list = await asyncio.to_thread(news_sources.fetch_breaking_news, 2, pending)
+    logger.info("NEWS_QUEUE pending=%d fetched=%d", len(pending), len(collected))
 
     # Filter repeated headlines before AI and bound work per two-minute poll.
     unique_items = []
