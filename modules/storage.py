@@ -44,6 +44,8 @@ async def init_db():
                 url TEXT,
                 summary TEXT,
                 published_at TEXT,
+                source_count INTEGER DEFAULT 1,
+                corroborating_sources_json TEXT,
                 first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 processed_at TIMESTAMP,
@@ -52,6 +54,12 @@ async def init_db():
                 post_type TEXT
             )
         """)
+        async with db.execute("PRAGMA table_info(news_items)") as cursor:
+            news_columns = {row[1] for row in await cursor.fetchall()}
+        if "source_count" not in news_columns:
+            await db.execute("ALTER TABLE news_items ADD COLUMN source_count INTEGER DEFAULT 1")
+        if "corroborating_sources_json" not in news_columns:
+            await db.execute("ALTER TABLE news_items ADD COLUMN corroborating_sources_json TEXT")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_news_items_published_at ON news_items(published_at)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_news_items_status ON news_items(processing_status, last_seen_at)")
         await db.execute("""
@@ -590,6 +598,7 @@ async def archive_news_items(items: list[dict]) -> int:
     """Persist raw collected news before analysis; safe to call repeatedly."""
     if not items:
         return 0
+    import json
     archived = 0
     async with db_compat.connect(DB_PATH) as db:
         for item in items:
@@ -600,8 +609,8 @@ async def archive_news_items(items: list[dict]) -> int:
             await db.execute(
                 """
                 INSERT INTO news_items
-                    (news_id, title, source, source_domain, url, summary, published_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (news_id, title, source, source_domain, url, summary, published_at, source_count, corroborating_sources_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(news_id) DO UPDATE SET
                     last_seen_at = CURRENT_TIMESTAMP,
                     summary = CASE
@@ -609,15 +618,21 @@ async def archive_news_items(items: list[dict]) -> int:
                         THEN excluded.summary ELSE news_items.summary END,
                     published_at = CASE
                         WHEN excluded.published_at IS NOT NULL AND excluded.published_at <> ''
-                        THEN excluded.published_at ELSE news_items.published_at END
+                        THEN excluded.published_at ELSE news_items.published_at END,
+                    source_count = excluded.source_count,
+                    corroborating_sources_json = excluded.corroborating_sources_json
                 WHERE
                     COALESCE(excluded.summary, '') <> COALESCE(news_items.summary, '')
                     OR COALESCE(excluded.published_at, '') <> COALESCE(news_items.published_at, '')
+                    OR COALESCE(excluded.source_count, 1) <> COALESCE(news_items.source_count, 1)
+                    OR COALESCE(excluded.corroborating_sources_json, '') <> COALESCE(news_items.corroborating_sources_json, '')
                 """,
                 (
                     news_id, title, str(item.get("source") or ""),
                     str(item.get("source_domain") or ""), str(item.get("url") or ""),
                     str(item.get("summary") or ""), str(item.get("published_at") or ""),
+                    int(item.get("source_count") or 1),
+                    json.dumps(item.get("corroborating_sources") or [], ensure_ascii=False),
                 ),
             )
             archived += 1
@@ -647,3 +662,38 @@ async def update_news_processing(
             (status, payload, post_type, status, news_id),
         )
         await db.commit()
+
+
+async def get_pending_news(limit: int = 100) -> list[dict]:
+    """Return collected news awaiting AI processing, newest market events first."""
+    import json
+    safe_limit = max(1, min(int(limit), 500))
+    async with db_compat.connect(DB_PATH) as db:
+        async with db.execute(
+            """
+            SELECT news_id, title, source, url, summary, published_at,
+                   source_count, corroborating_sources_json
+            FROM news_items
+            WHERE processing_status = 'collected'
+            ORDER BY
+                CASE WHEN published_at IS NULL OR published_at = '' THEN 1 ELSE 0 END,
+                published_at DESC,
+                first_seen_at ASC
+            LIMIT ?
+            """,
+            (safe_limit,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+    result = []
+    for row in rows:
+        try:
+            corroborating = json.loads(row[7] or "[]")
+        except (TypeError, ValueError):
+            corroborating = []
+        result.append({
+            "id": row[0], "title": row[1], "source": row[2] or "",
+            "url": row[3] or "", "summary": row[4] or "",
+            "published_at": row[5] or "", "source_count": int(row[6] or 1),
+            "corroborating_sources": corroborating if isinstance(corroborating, list) else [],
+        })
+    return result
