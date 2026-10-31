@@ -131,25 +131,38 @@ class GlobalMarketScopeTests(unittest.TestCase):
 
 class NewsSourceHealthTests(unittest.TestCase):
     def test_health_reports_per_source_state_without_secrets(self):
-        news_sources._feed_last_status['Health Test'] = '503'
-        news_sources._feed_last_error['Health Test'] = 'HTTP 503'
-        news_sources._feed_attempts['Health Test'] = 2
+        source = next(iter(news_sources.RSS_FEEDS))
+        old_values = (
+            news_sources._feed_last_status.get(source),
+            news_sources._feed_last_error.get(source),
+            news_sources._feed_attempts.get(source),
+        )
+        news_sources._feed_last_status[source] = '503'
+        news_sources._feed_last_error[source] = 'HTTP 503'
+        news_sources._feed_attempts[source] = 2
         health = news_sources.get_source_health()
         self.assertIn('sources', health)
-        self.assertEqual(health['sources']['Health Test']['last_status'], '503')
-        self.assertEqual(health['sources']['Health Test']['attempts'], 2)
+        self.assertEqual(health['sources'][source]['last_status'], '503')
+        self.assertEqual(health['sources'][source]['attempts'], 2)
         self.assertNotIn('token', str(health).lower())
-        news_sources._feed_last_status.pop('Health Test', None)
-        news_sources._feed_last_error.pop('Health Test', None)
-        news_sources._feed_attempts.pop('Health Test', None)
+        for mapping, old_value in zip(
+            (news_sources._feed_last_status, news_sources._feed_last_error, news_sources._feed_attempts),
+            old_values,
+        ):
+            if old_value is None:
+                mapping.pop(source, None)
+            else:
+                mapping[source] = old_value
 
     @patch.object(news_sources.requests, 'get')
     def test_finnhub_failure_keeps_last_good_cache(self, get):
+        previous_cache = news_sources._finnhub_cache
         news_sources._finnhub_cache = (0.0, [{'id': 'cached', 'title': 'Last good'}])
         get.side_effect = news_sources.requests.HTTPError('503 unavailable')
         with patch.object(news_sources, 'FINNHUB_API_KEY', 'test-key'):
             items = news_sources._fetch_finnhub_general_news()
         self.assertEqual(items[0]['id'], 'cached')
+        news_sources._finnhub_cache = previous_cache
 
 
 if __name__ == "__main__":
