@@ -67,7 +67,7 @@ RSS_FEEDS = {
     "Financial Times": "https://www.ft.com/?format=rss",
     "Abnormal Returns": "https://abnormalreturns.com/feed",
     "Seeking Alpha": "https://seekingalpha.com/feed.xml",
-    "AP Business": "https://apnews.com/hub/business?output=rss",
+    "AP Business": "https://flipboard.com/@associatedpress/business-and-finance-pbj3bpclz.rss",
     "Federal Reserve": "https://www.federalreserve.gov/feeds/press_all.xml",
     "European Central Bank": "https://www.ecb.europa.eu/rss/press.html",
     "IMF News": "https://www.imf.org/en/News/RSS",
@@ -75,4 +75,6 @@ RSS_FEEDS = {
     "US Energy Information Administration": "https://www.eia.gov/rss/todayinenergy.xml",
     "US Treasury": "https://home.treasury.gov/news/press-releases/rss.xml",
     "BIS": "https://www.bis.org/doclist/all_stats.rss",
+    "BIS Data Releases": "https://data.bis.org/feed.xml",
+    "US Treasury Auctions": "https://www.treasurydirect.gov/TA_WS/securities/announced/rss",
 }
