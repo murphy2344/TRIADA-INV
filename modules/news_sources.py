@@ -116,7 +116,6 @@ def _fetch_one(source: str, feed_url: str, limit_per_feed: int) -> list[dict]:
         if response.headers.get("Last-Modified"):
             cache_headers["If-Modified-Since"] = response.headers["Last-Modified"]
 
-        with _state_lock:
         items = []
         for entry in parsed.entries[:limit_per_feed]:
             title = (entry.get("title") or "").strip()
