@@ -10,6 +10,13 @@ except ModuleNotFoundError as exc:
 
 
 class ChartImgTests(unittest.TestCase):
+
+    def test_chart_img_uses_tradingview_symbols_for_yahoo_futures_and_fx(self):
+        self.assertEqual(charting.chart_img_symbol("CL=F"), "NYMEX:CL1!")
+        self.assertEqual(charting.chart_img_symbol("GC=F"), "COMEX:GC1!")
+        self.assertEqual(charting.chart_img_symbol("EURUSD=X"), "FX:EURUSD")
+        self.assertEqual(charting.chart_img_symbol("AAPL"), "NASDAQ:AAPL")
+
     @patch.object(charting, "requests")
     @patch.object(charting, "CHART_IMG_API_KEY", "unit-test-secret")
     def test_v1_uses_bearer_auth_and_does_not_send_v2_api_key_header(self, requests_mock):
