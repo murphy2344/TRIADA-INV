@@ -143,6 +143,7 @@ def _yfinance_chart(ticker: str, period: str = "5d") -> bytes | None:
     sparkline = get_sparkline_data(ticker, period)
     if not sparkline:
         return None
+    fig = None
     try:
         values = sparkline["values"]
         last = sparkline["last"]
@@ -175,6 +176,8 @@ def _yfinance_chart(ticker: str, period: str = "5d") -> bytes | None:
         plt.close(fig)
         return buf.getvalue()
     except Exception as e:
+        if fig is not None:
+            plt.close(fig)
         logger.error(f"yfinance Apple-style chart error ({ticker}): {e}")
         return None
 
