@@ -1,11 +1,12 @@
 import io
 import logging
+import math
 import os
 import re
 import time
 import requests
 import threading
-from config.config import CHART_IMG_API_KEY
+from config.config import CHART_IMG_API_KEY, FINNHUB_API_KEY, TWELVE_DATA_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -609,6 +610,88 @@ def _fetch_yfinance_news(ticker: str):
         _YFINANCE_COOLDOWN_LOGGED = False
         return news
 
+_FINNHUB_SYMBOL_MAP = {
+    "EURUSD=X": "OANDA:EUR_USD",
+    "GBPUSD=X": "OANDA:GBP_USD",
+    "JPY=X": "OANDA:USD_JPY",
+    "USDRUB=X": "OANDA:USD_RUB",
+    "RUB=X": "OANDA:USD_RUB",
+    "BTC-USD": "BINANCE:BTCUSDT",
+    "ETH-USD": "BINANCE:ETHUSDT",
+}
+_TWELVE_DATA_SYMBOL_MAP = {
+    "EURUSD=X": "EUR/USD",
+    "GBPUSD=X": "GBP/USD",
+    "JPY=X": "USD/JPY",
+    "USDRUB=X": "USD/RUB",
+    "RUB=X": "USD/RUB",
+    "GC=F": "XAU/USD",
+    "SI=F": "XAG/USD",
+    "CL=F": "WTI",
+    "BZ=F": "BRENT",
+    "BTC-USD": "BTC/USD",
+    "ETH-USD": "ETH/USD",
+}
+
+
+def _valid_quote_price(value) -> float | None:
+    try:
+        price = float(value)
+    except (TypeError, ValueError):
+        return None
+    return price if math.isfinite(price) and price > 0 else None
+
+
+def _fetch_finnhub_price(ticker: str) -> float | None:
+    if not FINNHUB_API_KEY:
+        return None
+    try:
+        response = requests.get(
+            "https://finnhub.io/api/v1/quote",
+            params={"symbol": _FINNHUB_SYMBOL_MAP.get(ticker, ticker), "token": FINNHUB_API_KEY},
+            timeout=8,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            return None
+        # Finnhub's c is the latest price; pc is the previous close and is
+        # intentionally not used as an entry price when the live quote is absent.
+        return _valid_quote_price(payload.get("c"))
+    except Exception as exc:
+        logger.warning("Finnhub quote fallback failed for %s: %s", ticker, type(exc).__name__)
+        return None
+
+
+def _fetch_twelve_data_price(ticker: str) -> float | None:
+    if not TWELVE_DATA_API_KEY:
+        return None
+    try:
+        response = requests.get(
+            "https://api.twelvedata.com/quote",
+            params={
+                "symbol": _TWELVE_DATA_SYMBOL_MAP.get(ticker, ticker),
+                "apikey": TWELVE_DATA_API_KEY,
+            },
+            timeout=8,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict) or payload.get("status") == "error":
+            return None
+        # Do not substitute previous_close: Track Record needs an actual
+        # latest/last price, not a stale value from a prior session.
+        return _valid_quote_price(payload.get("close") or payload.get("price"))
+    except Exception as exc:
+        logger.warning("Twelve Data quote fallback failed for %s: %s", ticker, type(exc).__name__)
+        return None
+
+
+def _fetch_fallback_price(ticker: str) -> float | None:
+    """Try independent quote APIs after Yahoo fails; never synthesize a price."""
+    return _fetch_finnhub_price(ticker) or _fetch_twelve_data_price(ticker)
+
+
 def get_current_price(ticker_raw: str) -> float | None:
     """Текущая цена актива — для трек-рекорда рекомендаций."""
     ticker = resolve_ticker(ticker_raw)
@@ -616,12 +699,16 @@ def get_current_price(ticker_raw: str) -> float | None:
         return None
     try:
         data = _fetch_yfinance_history(ticker, period="1d")
-        if data is None or "Close" not in data.columns or data["Close"].dropna().empty:
-            return None
-        return float(data["Close"].iloc[-1])
+        if data is not None and "Close" in data.columns and not data["Close"].dropna().empty:
+            price = _valid_quote_price(data["Close"].dropna().iloc[-1])
+            if price is not None:
+                return price
     except Exception as e:
-        logger.error(f"get_current_price error ({ticker}): {e}")
-        return None
+        logger.warning("get_current_price Yahoo failed (%s): %s", ticker, type(e).__name__)
+
+    # Independent providers keep Track Record operational during Yahoo crumb
+    # outages. If none supplies a valid live/last quote, skip the signal.
+    return _fetch_fallback_price(ticker)
 
 
 def get_price_metrics(
