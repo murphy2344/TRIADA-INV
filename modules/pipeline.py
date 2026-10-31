@@ -129,6 +129,13 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
             return False
 
         text = f"{item['title']}. {item.get('summary', '')}"
+        corroborating = item.get("corroborating_sources") or []
+        if corroborating:
+            text += (
+                f"\nПохожие публикации: {', '.join(corroborating)}. "
+                f"Различных доменов: {item.get('source_count', len(corroborating))}. "
+                "Похожие заголовки не являются самостоятельным подтверждением."
+            )
         analysis = await asyncio.to_thread(ai_analyzer.analyze, text, "BREAKING")
         if not _is_relevant(analysis):
             logger.info("Skipped (not relevant): %s", title[:60])
@@ -165,6 +172,8 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
                 logger.warning("Chip data fetch failed for %s: %s", ticker, exc)
 
         source = item.get("source") or ""
+        if len(corroborating) > 1:
+            source += f" + ещё {len(corroborating) - 1} источн."
         url = item.get("url") or ""
         caption = formatter.fmt_breaking(analysis, source, url, chip_data)
         ok, send_detail = await telegram_sender.send_photo_text_detailed(
