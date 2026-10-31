@@ -156,6 +156,7 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
             await _set_news_state(item.get("id"), "duplicate")
             return False
 
+        analysis = item.get("analysis")
         text = f"{item['title']}. {item.get('summary', '')}"
         corroborating = item.get("corroborating_sources") or []
         if corroborating:
@@ -164,7 +165,8 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
                 f"Различных доменов: {item.get('source_count', len(corroborating))}. "
                 "Похожие заголовки не являются самостоятельным подтверждением."
             )
-        analysis = await asyncio.to_thread(ai_analyzer.analyze, text, "BREAKING")
+        if not analysis:
+            analysis = await asyncio.to_thread(ai_analyzer.analyze, text, "BREAKING")
         if analysis is None:
             await _set_news_state(item.get("id"), "failed")
             return False
@@ -173,7 +175,7 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
             logger.info("Skipped (not relevant): %s", title[:60])
             return False
 
-        await _set_news_state(item.get("id"), "analyzed", analysis=analysis, post_type="BREAKING")
+        await _set_news_state(item.get("id"), "ready_to_publish", analysis=analysis, post_type="BREAKING")
         subject_en = analysis.get("subject_en", "")
         category = analysis.get("category", "market_move")
         if await dedup.is_duplicate_event(subject_en, category):
