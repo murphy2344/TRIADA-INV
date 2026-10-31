@@ -94,7 +94,7 @@ SIGNAL: long, short, neutral, volatility.
 chart_needed is true only for a concrete publicly traded asset. Private companies such as
 SpaceX, OpenAI, Anthropic and ByteDance never receive a related public ticker. Use
 yfinance-compatible tickers such as BTC-USD, GC=F, CL=F, SI=F, ^GSPC, ^IXIC, ^DJI,
-EURUSD=X, RUB=X, AAPL, TSLA, NVDA, MSFT, AMZN, GOOGL, META, JPM, XOM, BP, SHEL and GS.
+EURUSD=X, AAPL, TSLA, NVDA, MSFT, AMZN, GOOGL, META, JPM, XOM, BP, SHEL and GS.
 General macro, politics and geopolitics without a concrete asset use chart_needed=false.
 Always provide risk_ru. For central banks provide consensus versus actual when available.
 For earnings provide EPS and revenue actual versus estimate when available."""
