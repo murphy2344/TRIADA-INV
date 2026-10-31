@@ -88,15 +88,22 @@ async def _archive_news_items(items: list[dict]) -> None:
         logger.exception("NEWS_ARCHIVE_FAILED items=%d", len(items))
 
 
+async def _set_news_state(news_id: str, status: str, analysis: dict | None = None, post_type: str | None = None) -> None:
+    if not news_id:
+        return
+    try:
+        await storage.update_news_processing(news_id, status, analysis=analysis, post_type=post_type)
+    except Exception:
+        logger.exception("NEWS_PROCESSING_STATE_FAILED news_id=%s status=%s", news_id, status)
+
+
 async def _persist_analysis_results(analyses: list[dict], status: str = "analyzed") -> None:
     for analysis in analyses or []:
         news_id = analysis.get("_news_id")
         if not news_id:
             continue
         try:
-            await storage.update_news_processing(news_id, status, analysis=analysis, post_type=analysis.get("post_type") or status)
-        except Exception:
-            logger.exception("NEWS_PROCESSING_STATE_FAILED news_id=%s", news_id)
+            await _set_news_state(news_id, status, analysis=analysis, post_type=analysis.get("post_type") or status)
 
 
 async def _track_recommendation(analysis: dict):
@@ -159,14 +166,14 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
             )
         analysis = await asyncio.to_thread(ai_analyzer.analyze, text, "BREAKING")
         if analysis is None:
-            await storage.update_news_processing(item.get("id"), "failed")
+            await _set_news_state(item.get("id"), "failed")
             return False
         if not _is_relevant(analysis):
-            await storage.update_news_processing(item.get("id"), "skipped", analysis=analysis, post_type="BREAKING")
+            await _set_news_state(item.get("id"), "skipped", analysis=analysis, post_type="BREAKING")
             logger.info("Skipped (not relevant): %s", title[:60])
             return False
 
-        await storage.update_news_processing(item.get("id"), "analyzed", analysis=analysis, post_type="BREAKING")
+        await _set_news_state(item.get("id"), "analyzed", analysis=analysis, post_type="BREAKING")
         subject_en = analysis.get("subject_en", "")
         category = analysis.get("category", "market_move")
         if await dedup.is_duplicate_event(subject_en, category):
@@ -214,7 +221,7 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
             logger.warning("BREAKING published with fallback: %s", send_detail)
 
         await storage.mark_published(item["id"], item["title"], source, url, "BREAKING")
-        await storage.update_news_processing(item.get("id"), "published", analysis=analysis, post_type="BREAKING")
+        await _set_news_state(item.get("id"), "published", analysis=analysis, post_type="BREAKING")
         await dedup.mark_as_published(item["id"], item["title"])
         await dedup.mark_event_published(subject_en, category)
         await storage.increment_stats()
