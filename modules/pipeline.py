@@ -79,13 +79,15 @@ async def _get_media(
     return photo
 
 
-async def _archive_news_items(items: list[dict]) -> None:
+async def _archive_news_items(items: list[dict]) -> bool:
     if not items:
-        return
+        return True
     try:
         await storage.archive_news_items(items)
+        return True
     except Exception:
         logger.exception("NEWS_ARCHIVE_FAILED items=%d", len(items))
+        return False
 
 
 async def _set_news_state(news_id: str, status: str, analysis: dict | None = None, post_type: str | None = None) -> None:
@@ -153,8 +155,10 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
     try:
         await _archive_news_items([item])
         if await dedup.is_duplicate(item["id"], item["title"]):
+            await _set_news_state(item.get("id"), "duplicate")
             return False
 
+        analysis = item.get("analysis")
         text = f"{item['title']}. {item.get('summary', '')}"
         corroborating = item.get("corroborating_sources") or []
         if corroborating:
@@ -163,7 +167,8 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
                 f"Различных доменов: {item.get('source_count', len(corroborating))}. "
                 "Похожие заголовки не являются самостоятельным подтверждением."
             )
-        analysis = await asyncio.to_thread(ai_analyzer.analyze, text, "BREAKING")
+        if not analysis:
+            analysis = await asyncio.to_thread(ai_analyzer.analyze, text, "BREAKING")
         if analysis is None:
             await _set_news_state(item.get("id"), "failed")
             return False
@@ -172,10 +177,11 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
             logger.info("Skipped (not relevant): %s", title[:60])
             return False
 
-        await _set_news_state(item.get("id"), "analyzed", analysis=analysis, post_type="BREAKING")
+        await _set_news_state(item.get("id"), "ready_to_publish", analysis=analysis, post_type="BREAKING")
         subject_en = analysis.get("subject_en", "")
         category = analysis.get("category", "market_move")
         if await dedup.is_duplicate_event(subject_en, category):
+            await _set_news_state(item.get("id"), "duplicate", analysis=analysis, post_type="BREAKING")
             logger.info("Skipped (duplicate event): %s / %s", subject_en, category)
             return False
 
@@ -232,8 +238,14 @@ async def _publish_breaking_item(bot, item: dict, admin_id: str = None) -> bool:
 
 async def run_breaking(bot, admin_id: str = None):
     collected = await asyncio.to_thread(news_sources.fetch_news, 2)
-    await _archive_news_items(collected)
-    news_list = await asyncio.to_thread(news_sources.fetch_breaking_news, 2, collected)
+    archive_ok = await _archive_news_items(collected)
+    try:
+        pending = await storage.get_pending_news(limit=100) if archive_ok else collected
+    except Exception:
+        logger.exception("NEWS_QUEUE_READ_FAILED; falling back to current collection")
+        pending = collected
+    news_list = await asyncio.to_thread(news_sources.fetch_breaking_news, 2, pending)
+    logger.info("NEWS_QUEUE pending=%d fetched=%d", len(pending), len(collected))
 
     # Filter repeated headlines before AI and bound work per two-minute poll.
     unique_items = []
