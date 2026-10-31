@@ -314,6 +314,7 @@ async def run_hourly(bot, admin_id: str = None):
     ok     = await telegram_sender.send_two_messages(bot, photo, header, body, **_topic_kwargs(analyses[0]))
 
     if ok:
+        await _persist_analysis_results(analyses, "published")
         for item in fresh:
             await storage.mark_published(item["id"], item["title"], item["source"], item["url"], "HOURLY")
             await dedup.mark_as_published(item["id"], item["title"])
@@ -431,6 +432,7 @@ async def run_weekly(bot, admin_id: str = None):
         bot, photo, header, body, **_topic_kwargs_for_analyses(analyses)
     )
     if ok:
+        await _persist_analysis_results(analyses, "published")
         await storage.increment_stats()
         return 1
     return 0
