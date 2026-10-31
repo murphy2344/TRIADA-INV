@@ -45,6 +45,10 @@ _feed_cache_headers: dict[str, dict[str, str]] = {}
 # provider failures do not make the entire news cycle appear empty.
 _feed_items_cache: dict[str, list[dict]] = {}
 _feed_last_success: dict[str, float] = {}
+_feed_last_status: dict[str, str] = {}
+_feed_last_error: dict[str, str] = {}
+_feed_attempts: dict[str, int] = {}
+_feed_successes: dict[str, int] = {}
 _state_lock = threading.Lock()
 _finnhub_cache = (0.0, [])
 _FINNHUB_CACHE_SECONDS = 300
@@ -100,12 +104,18 @@ def _fetch_one(source: str, feed_url: str, limit_per_feed: int) -> list[dict]:
         headers = {"User-Agent": RSS_USER_AGENT, **_feed_cache_headers.get(source, {})}
 
     try:
+        with _state_lock:
+            _feed_attempts[source] = _feed_attempts.get(source, 0) + 1
         response = requests.get(feed_url, timeout=(3, RSS_TIMEOUT_SECONDS), headers=headers)
         if response.status_code == 304:
             logger.debug("RSS_NOT_MODIFIED source=%s", source)
             with _state_lock:
                 _feed_retry_after.pop(source, None)
                 _feed_failures.pop(source, None)
+                _feed_last_status[source] = "304_not_modified"
+                _feed_last_error.pop(source, None)
+                _feed_successes[source] = _feed_successes.get(source, 0) + 1
+                _feed_last_success[source] = time.monotonic()
                 cached = [dict(item) for item in _feed_items_cache.get(source, [])]
             logger.debug("RSS_CACHE_REUSED source=%s items=%d", source, len(cached))
             return cached[:limit_per_feed]
@@ -149,6 +159,9 @@ def _fetch_one(source: str, feed_url: str, limit_per_feed: int) -> list[dict]:
             _feed_cache_headers[source] = cache_headers
             _feed_items_cache[source] = [dict(item) for item in items]
             _feed_last_success[source] = time.monotonic()
+            _feed_last_status[source] = str(response.status_code)
+            _feed_last_error.pop(source, None)
+            _feed_successes[source] = _feed_successes.get(source, 0) + 1
             _feed_retry_after.pop(source, None)
             _feed_failures.pop(source, None)
             _feed_failure_logged.discard(source)
@@ -158,6 +171,9 @@ def _fetch_one(source: str, feed_url: str, limit_per_feed: int) -> list[dict]:
         with _state_lock:
             failures = _feed_failures.get(source, 0) + 1
             _feed_failures[source] = failures
+            response_status = getattr(getattr(exc, "response", None), "status_code", None)
+            _feed_last_status[source] = str(response_status or type(exc).__name__)
+            _feed_last_error[source] = str(exc)[:180]
             cooldown = min(
                 RSS_MAX_COOLDOWN_SECONDS,
                 RSS_FAILURE_COOLDOWN_SECONDS * (2 ** min(failures - 1, 4)),
@@ -225,8 +241,11 @@ def _fetch_finnhub_general_news():
             return list(_finnhub_cache[1])
         except Exception as exc:
             logger.warning("NEWS_PROVIDER_FAIL provider=Finnhub error=%s", type(exc).__name__)
-            _finnhub_cache = (time.monotonic() - (_FINNHUB_CACHE_SECONDS - 90), [])
-            return []
+            stale_items = list(_finnhub_cache[1])
+            _finnhub_cache = (time.monotonic(), stale_items)
+            if stale_items:
+                logger.info("NEWS_PROVIDER_STALE_CACHE provider=Finnhub items=%d", len(stale_items))
+            return stale_items
 
 
 def _title_tokens(title):
@@ -267,8 +286,6 @@ def _attach_corroborating_sources(items):
 
 def fetch_news(limit_per_feed: int = 3) -> list:
     """Collect news from all healthy configured feeds without serial blocking."""
-    if not RSS_FEEDS:
-        return []
     items = []
     workers = min(RSS_MAX_WORKERS, len(RSS_FEEDS))
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="triada-rss") as pool:
@@ -298,6 +315,13 @@ def fetch_news(limit_per_feed: int = 3) -> list:
     result = list(unique.values())
     _attach_corroborating_sources(result)
     result.sort(key=lambda item: item.get("published_at") or "", reverse=True)
+    health = get_source_health()
+    healthy = sum(1 for row in health["sources"].values() if row["last_status"] in {"200", "304_not_modified"})
+    failed = sum(1 for row in health["sources"].values() if row["last_error"])
+    logger.info(
+        "NEWS_SOURCE_HEALTH rss_configured=%d rss_healthy=%d rss_failed=%d rss_cooling=%d finnhub_items=%d",
+        len(RSS_FEEDS), healthy, failed, health["cooling_down"], len(_finnhub_cache[1]),
+    )
     logger.info(
         "RSS_COLLECTION sources=%d healthy_items=%d configured=%d",
         len({item["source"] for item in result}), len(result), len(RSS_FEEDS),
@@ -330,18 +354,35 @@ def fetch_breaking_news(limit_per_feed: int = 2, items: list[dict] | None = None
 
 
 def get_source_health() -> dict:
-    """Return a safe operational snapshot for diagnostics/tests."""
+    """Return per-source operational metrics without exposing credentials."""
     now = time.monotonic()
     with _state_lock:
+        sources = {}
+        for source in RSS_FEEDS:
+            last_success = _feed_last_success.get(source)
+            cooling = _feed_retry_after.get(source, 0) > now
+            sources[source] = {
+                "state": "cooling_down" if cooling else (
+                    "healthy" if last_success is not None and not _feed_last_error.get(source)
+                    else "stale_or_failed" if _feed_last_error.get(source)
+                    else "not_checked"
+                ),
+                "last_status": _feed_last_status.get(source, "never"),
+                "last_error": _feed_last_error.get(source, ""),
+                "attempts": _feed_attempts.get(source, 0),
+                "successes": _feed_successes.get(source, 0),
+                "last_success_age_seconds": (
+                    round(max(0.0, now - last_success), 1) if last_success is not None else None
+                ),
+                "cached_items": len(_feed_items_cache.get(source, [])),
+                "has_cache": bool(_feed_items_cache.get(source, [])),
+            }
         return {
             "configured": len(RSS_FEEDS),
-            "cooling_down": sum(until > now for until in _feed_retry_after.values()),
-            "failed_sources": len(_feed_failures),
+            "cooling_down": sum(1 for until in _feed_retry_after.values() if until > now),
+            "failed_sources": sum(1 for row in sources.values() if row["last_error"]),
             "cached_validators": len(_feed_cache_headers),
             "cached_feeds": len(_feed_items_cache),
             "feeds_with_payload": sum(bool(items) for items in _feed_items_cache.values()),
-            "last_success_age_seconds": {
-                source: round(max(0.0, now - updated), 1)
-                for source, updated in _feed_last_success.items()
-            },
+            "sources": sources,
         }
