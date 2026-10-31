@@ -13,17 +13,22 @@ class YahooPriceCooldownTests(unittest.TestCase):
             charting._YFINANCE_COOLDOWN_UNTIL,
             charting._YFINANCE_COOLDOWN_REASON,
             charting._YFINANCE_COOLDOWN_LOGGED,
+            dict(charting._YFINANCE_SYMBOL_COOLDOWNS),
         )
         charting._YFINANCE_COOLDOWN_UNTIL = 0.0
         charting._YFINANCE_COOLDOWN_REASON = ""
         charting._YFINANCE_COOLDOWN_LOGGED = False
+        charting._YFINANCE_SYMBOL_COOLDOWNS.clear()
 
     def tearDown(self):
         (
             charting._YFINANCE_COOLDOWN_UNTIL,
             charting._YFINANCE_COOLDOWN_REASON,
             charting._YFINANCE_COOLDOWN_LOGGED,
+            old_symbol_cooldowns,
         ) = self.old_state
+        charting._YFINANCE_SYMBOL_COOLDOWNS.clear()
+        charting._YFINANCE_SYMBOL_COOLDOWNS.update(old_symbol_cooldowns)
 
     def test_rate_limit_starts_long_cooldown_and_skips_followup_request(self):
         ticker = Mock()
@@ -116,8 +121,28 @@ class YahooPriceCooldownTests(unittest.TestCase):
         with patch.dict(sys.modules, {"yfinance": provider}):
             self.assertIsNone(charting._fetch_yfinance_history("GC=F", "1d"))
 
-        self.assertEqual(charting._YFINANCE_COOLDOWN_REASON, "empty history")
-        self.assertGreater(charting._YFINANCE_COOLDOWN_UNTIL, 0)
+        self.assertEqual(charting._YFINANCE_COOLDOWN_UNTIL, 0.0)
+        self.assertGreater(charting._YFINANCE_SYMBOL_COOLDOWNS["GC=F"], 0.0)
+
+    def test_empty_history_for_one_symbol_does_not_block_other_symbols(self):
+        empty = Mock()
+        empty.empty = True
+        valid = Mock()
+        valid.empty = False
+        first = Mock()
+        first.history.return_value = empty
+        second = Mock()
+        second.history.return_value = valid
+        provider = types.SimpleNamespace(Ticker=Mock(side_effect=[first, second]))
+
+        with patch.dict(sys.modules, {"yfinance": provider}):
+            self.assertIsNone(charting._fetch_yfinance_history("GC=F", "1d"))
+            self.assertIs(charting._fetch_yfinance_history("AAPL", "1d"), valid)
+
+        first.history.assert_called_once_with(period="1d")
+        second.history.assert_called_once_with(period="1d")
+        self.assertIn("GC=F", charting._YFINANCE_SYMBOL_COOLDOWNS)
+        self.assertNotIn("AAPL", charting._YFINANCE_SYMBOL_COOLDOWNS)
 
     def test_successful_history_clears_previous_cooldown(self):
         data = Mock()
