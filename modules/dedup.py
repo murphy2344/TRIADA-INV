@@ -151,7 +151,9 @@ def _event_fingerprint(subject_en: str, category: str) -> str:
     на разных языках) для ОДНОГО И ТОГО ЖЕ события — Jaccard по словам это
     не ловит. Здесь сравниваем по теме (subject_en) + категории."""
     key = (subject_en or "").strip().lower()
-    key = re.sub(r"[^a-z0-9 ]", "", key)
+    # Preserve Unicode letters: the analyzer currently emits Russian event
+    # subjects, so ASCII-only normalization made every Cyrillic fingerprint empty.
+    key = re.sub(r"[^\w ]", "", key, flags=re.UNICODE).replace("_", " ")
     key = re.sub(r"\s+", " ", key).strip()
     return f"{category}:{key}"
 

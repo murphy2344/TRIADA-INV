@@ -434,6 +434,7 @@ def analyze_batch(news_items: list, category: str = "HOURLY") -> list:
         analysis = analyze(text, category)
         if analysis and analysis.get("relevant") is not False:
             source_names = item.get("corroborating_sources") or []
+            analysis["_news_id"] = item.get("id", "")
             analysis["_source"] = item.get("source", "")
             if len(source_names) > 1:
                 analysis["_source"] += f" + ещё {len(source_names) - 1} источн."

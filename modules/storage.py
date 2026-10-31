@@ -36,6 +36,25 @@ async def init_db():
             )
         """)
         await db.execute("""
+            CREATE TABLE IF NOT EXISTS news_items (
+                news_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                source TEXT,
+                source_domain TEXT,
+                url TEXT,
+                summary TEXT,
+                published_at TEXT,
+                first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                processed_at TIMESTAMP,
+                processing_status TEXT DEFAULT 'collected',
+                analysis_json TEXT,
+                post_type TEXT
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_news_items_published_at ON news_items(published_at)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_news_items_status ON news_items(processing_status, last_seen_at)")
+        await db.execute("""
             CREATE TABLE IF NOT EXISTS bot_stats (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 date TEXT UNIQUE,
@@ -565,3 +584,66 @@ async def get_watchlist(user_id: int) -> list:
         ) as cursor:
             rows = await cursor.fetchall()
             return [r[0] for r in rows]
+
+
+async def archive_news_items(items: list[dict]) -> int:
+    """Persist raw collected news before analysis; safe to call repeatedly."""
+    if not items:
+        return 0
+    archived = 0
+    async with db_compat.connect(DB_PATH) as db:
+        for item in items:
+            news_id = str(item.get("id") or "").strip()
+            title = str(item.get("title") or "").strip()
+            if not news_id or not title:
+                continue
+            await db.execute(
+                """
+                INSERT INTO news_items
+                    (news_id, title, source, source_domain, url, summary, published_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(news_id) DO UPDATE SET
+                    last_seen_at = CURRENT_TIMESTAMP,
+                    summary = CASE
+                        WHEN excluded.summary IS NOT NULL AND excluded.summary <> ''
+                        THEN excluded.summary ELSE news_items.summary END,
+                    published_at = CASE
+                        WHEN excluded.published_at IS NOT NULL AND excluded.published_at <> ''
+                        THEN excluded.published_at ELSE news_items.published_at END
+                WHERE
+                    COALESCE(excluded.summary, '') <> COALESCE(news_items.summary, '')
+                    OR COALESCE(excluded.published_at, '') <> COALESCE(news_items.published_at, '')
+                """,
+                (
+                    news_id, title, str(item.get("source") or ""),
+                    str(item.get("source_domain") or ""), str(item.get("url") or ""),
+                    str(item.get("summary") or ""), str(item.get("published_at") or ""),
+                ),
+            )
+            archived += 1
+        await db.commit()
+    logger.info("NEWS_ARCHIVE_UPSERT count=%d", archived)
+    return archived
+
+
+async def update_news_processing(
+    news_id: str, status: str, analysis: dict | None = None, post_type: str | None = None
+) -> None:
+    """Store the latest processing state and normalized AI result for an item."""
+    import json
+    if not news_id:
+        return
+    payload = json.dumps(analysis, ensure_ascii=False, default=str) if analysis is not None else None
+    async with db_compat.connect(DB_PATH) as db:
+        await db.execute(
+            """
+            UPDATE news_items
+            SET processing_status = ?, analysis_json = COALESCE(?, analysis_json),
+                post_type = COALESCE(?, post_type),
+                processed_at = CASE WHEN ? IN ('analyzed', 'skipped', 'failed', 'published')
+                                    THEN CURRENT_TIMESTAMP ELSE processed_at END
+            WHERE news_id = ?
+            """,
+            (status, payload, post_type, status, news_id),
+        )
+        await db.commit()

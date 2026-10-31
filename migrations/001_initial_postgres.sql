@@ -74,3 +74,23 @@ CREATE TABLE IF NOT EXISTS user_watchlists (
     added_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (user_id, ticker)
 );
+
+
+-- Durable raw-news archive and processing state.
+CREATE TABLE IF NOT EXISTS news_items (
+    news_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    source TEXT,
+    source_domain TEXT,
+    url TEXT,
+    summary TEXT,
+    published_at TEXT,
+    first_seen_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    processed_at TIMESTAMPTZ,
+    processing_status TEXT DEFAULT 'collected',
+    analysis_json TEXT,
+    post_type TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_news_items_published_at ON news_items(published_at);
+CREATE INDEX IF NOT EXISTS idx_news_items_status ON news_items(processing_status, last_seen_at);

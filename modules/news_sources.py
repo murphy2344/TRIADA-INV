@@ -287,14 +287,14 @@ def fetch_news(limit_per_feed: int = 3) -> list:
     return result
 
 
-def fetch_breaking_news(limit_per_feed: int = 2) -> list:
+def fetch_breaking_news(limit_per_feed: int = 2, items: list[dict] | None = None) -> list:
     breaking_keywords = (
         "breaking", "urgent", "срочно", "flash", "alert", "emergency",
         "crisis", "crash", "collapse", "sanctions", "war", "attack",
         "recession", "default", "fed", "rate", "powell", "tariff",
         "inflation", "earnings", "bank", "central bank", "опек",
     )
-    all_news = fetch_news(limit_per_feed)
+    all_news = items if items is not None else fetch_news(limit_per_feed)
     breaking = []
     for item in all_news:
         text = (item["title"] + " " + item["summary"]).lower()
