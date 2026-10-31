@@ -144,6 +144,29 @@ class YahooPriceCooldownTests(unittest.TestCase):
         self.assertIn("GC=F", charting._YFINANCE_SYMBOL_COOLDOWNS)
         self.assertNotIn("AAPL", charting._YFINANCE_SYMBOL_COOLDOWNS)
 
+    def test_symbol_cooldown_cache_is_bounded_for_many_failed_tickers(self):
+        now = 1000.0
+        for index in range(charting._YFINANCE_SYMBOL_COOLDOWN_MAX_ENTRIES + 20):
+            charting._set_yfinance_symbol_cooldown(f"TICKER{index}", now=now)
+
+        self.assertEqual(
+            len(charting._YFINANCE_SYMBOL_COOLDOWNS),
+            charting._YFINANCE_SYMBOL_COOLDOWN_MAX_ENTRIES,
+        )
+        self.assertNotIn("TICKER0", charting._YFINANCE_SYMBOL_COOLDOWNS)
+        self.assertIn("TICKER275", charting._YFINANCE_SYMBOL_COOLDOWNS)
+
+    def test_symbol_cooldown_cache_prunes_expired_entries(self):
+        charting._YFINANCE_SYMBOL_COOLDOWNS.update({
+            "EXPIRED": 99.0,
+            "ACTIVE": 101.0,
+        })
+        charting._set_yfinance_symbol_cooldown("NEW", now=100.0)
+
+        self.assertNotIn("EXPIRED", charting._YFINANCE_SYMBOL_COOLDOWNS)
+        self.assertIn("ACTIVE", charting._YFINANCE_SYMBOL_COOLDOWNS)
+        self.assertIn("NEW", charting._YFINANCE_SYMBOL_COOLDOWNS)
+
     def test_successful_history_clears_previous_cooldown(self):
         data = Mock()
         data.empty = False
