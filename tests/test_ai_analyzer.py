@@ -52,17 +52,21 @@ class AIFailoverTests(unittest.TestCase):
     @patch.object(ai_analyzer, "_analyze_groq")
     @patch.object(ai_analyzer, "_analyze_gemini")
     def test_failover_is_bounded_and_stops_on_success(self, gemini, groq):
-        gemini.return_value = None
-        groq.side_effect = [None, {"relevant": True, "title": "test"}]
+        groq.side_effect = [None, None, {"relevant": True, "title": "test"}]
+        gemini.side_effect = [None, None]
         with patch.object(ai_analyzer, "GEMINI_API_KEY", "test-key"), \
              patch.object(ai_analyzer, "GROQ_API_KEY", "test-key"), \
              patch.object(ai_analyzer, "PRIMARY_GROQ_MODEL", "model-a"), \
+             patch.object(ai_analyzer, "PRIMARY_GEMINI_MODEL", "gemini-a"), \
+             patch.object(ai_analyzer, "SECONDARY_GEMINI_MODEL", "gemini-b"), \
              patch.object(ai_analyzer, "SECONDARY_GROQ_MODEL", "model-b"):
             result = ai_analyzer.analyze("Central bank announces policy decision")
 
         self.assertEqual(result, {"relevant": True, "title": "test"})
         self.assertEqual(groq.call_count, 2)
+        self.assertEqual(gemini.call_count, 2)
         self.assertEqual([call.args[2] for call in groq.call_args_list], ["model-a", "model-b"])
+        self.assertEqual([call.args[2] for call in gemini.call_args_list], ["gemini-a", "gemini-b"])
 
     @patch.object(ai_analyzer, "_analyze_gemini")
     def test_obvious_nonfinancial_item_uses_no_provider(self, gemini):
