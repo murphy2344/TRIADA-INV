@@ -102,8 +102,7 @@ async def _persist_analysis_results(analyses: list[dict], status: str = "analyze
         news_id = analysis.get("_news_id")
         if not news_id:
             continue
-        try:
-            await _set_news_state(news_id, status, analysis=analysis, post_type=analysis.get("post_type") or status)
+        await _set_news_state(news_id, status, analysis=analysis, post_type=analysis.get("post_type") or status)
 
 
 async def _track_recommendation(analysis: dict):
