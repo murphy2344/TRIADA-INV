@@ -23,10 +23,16 @@ GEMINI_API_URL = (
     "{model}:generateContent"
 )
 
-# Keep the production chain short: one Gemini attempt, then two Groq models.
-# A provider failure advances to the next model immediately; no hidden SDK retries.
+# Fail over across providers rather than repeatedly depending on a single API.
+# Groq is currently the most reliable observed provider; Gemini remains an
+# independent second provider, with its configured lite model as a same-vendor
+# fallback. The final Groq model is a last resort and shares Groq org quota.
+PRIMARY_GROQ_MODEL = os.getenv(
+    "TRIADA_AI_GROQ_PRIMARY_MODEL",
+    os.getenv("TRIADA_AI_FALLBACK_MODEL", GROQ_MODEL or "openai/gpt-oss-120b"),
+).strip()
 PRIMARY_GEMINI_MODEL = os.getenv("TRIADA_AI_PRIMARY_MODEL", GEMINI_MODEL or "gemini-3.8-flash").strip()
-PRIMARY_GROQ_MODEL = os.getenv("TRIADA_AI_FALLBACK_MODEL", GROQ_MODEL or "openai/gpt-oss-120b").strip()
+SECONDARY_GEMINI_MODEL = os.getenv("TRIADA_AI_GEMINI_LAST_RESORT_MODEL", GEMINI_FALLBACK_MODEL or "").strip()
 SECONDARY_GROQ_MODEL = os.getenv("TRIADA_AI_LAST_RESORT_MODEL", GROQ_FALLBACK_MODEL or "openai/gpt-oss-20b").strip()
 
 # Avoid repeatedly calling providers whose quota is already exhausted.
@@ -78,6 +84,10 @@ there is a direct, specific financial-market impact. Skip corporate announcement
 concrete numbers, dates or market-relevant action. Unconfirmed information has confidence
 <= 0.3 and source_reliability="rumor". Skip events older than 7 days. Never invent numbers.
 If uncertain, use neutral and confidence below 0.5.
+If the input includes a list of corroborating publishers, treat it as a discovery
+signal only: syndicated copies may not be independent confirmation. Do not raise
+confidence or mark a claim confirmed solely because multiple headlines look alike.
+Separate verified facts, reported claims, and your own market-impact hypotheses.
 
 CATEGORIES: macro, earnings, geopolitics, corporate, central_bank, commodity, regulatory, bonds.
 IMPACT: critical (>2%), high (1-2%), medium (0.5-1%), low (<0.5%).
@@ -87,7 +97,7 @@ SIGNAL: long, short, neutral, volatility.
 chart_needed is true only for a concrete publicly traded asset. Private companies such as
 SpaceX, OpenAI, Anthropic and ByteDance never receive a related public ticker. Use
 yfinance-compatible tickers such as BTC-USD, GC=F, CL=F, SI=F, ^GSPC, ^IXIC, ^DJI,
-EURUSD=X, RUB=X, AAPL, TSLA, NVDA, MSFT, AMZN, GOOGL, META, JPM, XOM, BP, SHEL and GS.
+EURUSD=X, AAPL, TSLA, NVDA, MSFT, AMZN, GOOGL, META, JPM, XOM, BP, SHEL and GS.
 General macro, politics and geopolitics without a concrete asset use chart_needed=false.
 Always provide risk_ru. For central banks provide consensus versus actual when available.
 For earnings provide EPS and revenue actual versus estimate when available."""
@@ -215,14 +225,15 @@ def _http_error_code(exc: Exception) -> str:
     return type(exc).__name__
 
 
-def _analyze_gemini(prompt: str, category: str) -> dict | None:
-    if not GEMINI_API_KEY or not PRIMARY_GEMINI_MODEL:
+def _analyze_gemini(prompt: str, category: str, model: str | None = None) -> dict | None:
+    model = (model or PRIMARY_GEMINI_MODEL).strip()
+    if not GEMINI_API_KEY or not model:
         return None
     started = time.monotonic()
     usage = {}
     try:
         response = requests.post(
-            GEMINI_API_URL.format(model=quote(PRIMARY_GEMINI_MODEL, safe="")),
+            GEMINI_API_URL.format(model=quote(model, safe="")),
             headers={"x-goog-api-key": GEMINI_API_KEY, "Content-Type": "application/json"},
             json={
                 "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
@@ -240,15 +251,15 @@ def _analyze_gemini(prompt: str, category: str) -> dict | None:
         usage = data.get("usageMetadata") or {}
         text = data["candidates"][0]["content"]["parts"][0]["text"]
         result = _normalize_result(json.loads(text), category)
-        _usage_log("Gemini", PRIMARY_GEMINI_MODEL, started, usage, "success", 1)
-        logger.info("AI_RESULT provider=Gemini model=%s relevant=%s", PRIMARY_GEMINI_MODEL, result.get("relevant"))
+        _usage_log("Gemini", model, started, usage, "success", 1)
+        logger.info("AI_RESULT provider=Gemini model=%s relevant=%s", model, result.get("relevant"))
         return result
     except Exception as exc:
         code = _http_error_code(exc)
-        _set_provider_cooldown("Gemini", PRIMARY_GEMINI_MODEL, exc, code)
-        _usage_log("Gemini", PRIMARY_GEMINI_MODEL, started, usage, "error", 1, code)
+        _set_provider_cooldown("Gemini", model, exc, code)
+        _usage_log("Gemini", model, started, usage, "error", 1, code)
         logger.warning("AI_FAILOVER provider=Gemini model=%s error_code=%s detail=%s",
-                       PRIMARY_GEMINI_MODEL, code, str(exc)[:250])
+                       model, code, str(exc)[:250])
         return None
 
 
@@ -348,30 +359,30 @@ def analyze(raw_text: str, category: str = "BREAKING") -> dict | None:
 Верни JSON строго по схеме:
 {ANALYSIS_SCHEMA}"""
 
-    # Three bounded attempts, no nested SDK retries: Gemini -> Groq 120B -> Groq 20B.
-    # If Gemini is not configured, the Groq models become attempts 1 and 2.
-    if GEMINI_API_KEY:
-        if _provider_is_cooling_down("Gemini", PRIMARY_GEMINI_MODEL):
-            logger.info("AI_PROVIDER_SKIPPED provider=Gemini model=%s reason=cooldown", PRIMARY_GEMINI_MODEL)
-        else:
-            result = _analyze_gemini(prompt, category)
-            if result is not None:
-                return result
-
-    groq_models = list(dict.fromkeys(
-        model for model in (PRIMARY_GROQ_MODEL, SECONDARY_GROQ_MODEL)
-        if model and model.strip()
-    ))
-    for attempt, model in enumerate(groq_models, start=2 if GEMINI_API_KEY else 1):
-        if _provider_is_cooling_down("Groq", model):
-            logger.info("AI_PROVIDER_SKIPPED provider=Groq model=%s reason=cooldown", model)
+    # Bounded cross-provider chain: Groq 120B -> Gemini Flash -> Gemini Lite
+    # -> Groq 20B. No nested SDK retries; cooldowns skip unhealthy models.
+    attempts = (
+        ("Groq", PRIMARY_GROQ_MODEL),
+        ("Gemini", PRIMARY_GEMINI_MODEL),
+        ("Gemini", SECONDARY_GEMINI_MODEL),
+        ("Groq", SECONDARY_GROQ_MODEL),
+    )
+    attempted = 0
+    for provider, model in attempts:
+        if not model or (provider == "Groq" and not GROQ_API_KEY) or (provider == "Gemini" and not GEMINI_API_KEY):
             continue
-        result = _analyze_groq(prompt, category, model, attempt)
+        if _provider_is_cooling_down(provider, model):
+            logger.info("AI_PROVIDER_SKIPPED provider=%s model=%s reason=cooldown", provider, model)
+            continue
+        attempted += 1
+        if provider == "Groq":
+            result = _analyze_groq(prompt, category, model, attempted)
+        else:
+            result = _analyze_gemini(prompt, category, model)
         if result is not None:
             return result
 
-    logger.error("AI_EXHAUSTED category=%s providers_attempted=%s",
-                 category, int(bool(GEMINI_API_KEY)) + len(groq_models))
+    logger.error("AI_EXHAUSTED category=%s providers_attempted=%s", category, attempted)
     return None
 
 
@@ -411,10 +422,22 @@ def analyze_batch(news_items: list, category: str = "HOURLY") -> list:
             logger.info("AI_PREFILTER skipped duplicate title=%s", title[:100])
             continue
         seen.append((_title_key(title), _title_tokens(title)))
+        source_context = ", ".join(item.get("corroborating_sources") or [])
+        source_count = int(item.get("source_count") or 1)
         text = f"{title}. {item.get('summary', '')}"
+        if source_context:
+            text += (
+                f"\nПубликации/источники по похожему событию: {source_context}."
+                f" Число различных доменов: {source_count}. "
+                "Это не гарантирует независимое подтверждение."
+            )
         analysis = analyze(text, category)
         if analysis and analysis.get("relevant") is not False:
+            source_names = item.get("corroborating_sources") or []
             analysis["_source"] = item.get("source", "")
+            if len(source_names) > 1:
+                analysis["_source"] += f" + ещё {len(source_names) - 1} источн."
+            analysis["_source_count"] = int(item.get("source_count") or 1)
             analysis["_url"] = item.get("url", "")
             analysis["_raw_title"] = title
             results.append(analysis)

@@ -79,13 +79,13 @@ def build_scheduler(bot, admin_id: str) -> AsyncIOScheduler:
         args=[bot, admin_id], id="track_record"
     )
 
-    # Лидеры роста/падения MOEX — раз в день, 19:00 МСК
+    # Лидеры роста/падения глобального рынка — раз в день, 19:00 МСК
     scheduler.add_job(
         pipeline.run_leaders, "cron", hour=19, minute=0,
-        args=[bot, admin_id], id="moex_leaders"
+        args=[bot, admin_id], id="global_market_leaders"
     )
 
-    # Пульс рынка (USD/RUB, IMOEX) — каждые 15 минут
+    # Глобальный пульс рынка — каждые 15 минут
     scheduler.add_job(
         pipeline.update_market_pulse, "interval", minutes=15,
         args=[bot, admin_id], id="market_pulse"

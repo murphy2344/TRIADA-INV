@@ -6,50 +6,6 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-IMOEX_MARKETDATA_URL = (
-    "https://iss.moex.com/iss/engines/stock/markets/index"
-    "/boards/SNDX/securities/IMOEX.json"
-)
-MOEX_TIMEOUT = 10
-
-
-def _moex_first_row(block: dict) -> dict | None:
-    if not block or not block.get("data"):
-        return None
-    return dict(zip(block.get("columns", []), block["data"][0]))
-
-
-def fetch_imoex() -> dict | None:
-    try:
-        response = requests.get(
-            IMOEX_MARKETDATA_URL,
-            params={
-                "iss.meta": "off",
-                "marketdata.columns": "SECID,CURRENTVALUE,LASTTOPREVPRICE",
-                "securities.columns": "SECID,PREVPRICE",
-            },
-            timeout=MOEX_TIMEOUT,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        market = _moex_first_row(payload.get("marketdata"))
-        securities = _moex_first_row(payload.get("securities"))
-        if market and market.get("CURRENTVALUE") is not None:
-            return {
-                "value": float(market["CURRENTVALUE"]),
-                "change_pct": market.get("LASTTOPREVPRICE"),
-                "is_closed": False,
-            }
-        if securities and securities.get("PREVPRICE") is not None:
-            return {
-                "value": float(securities["PREVPRICE"]),
-                "change_pct": None,
-                "is_closed": True,
-            }
-    except Exception as exc:
-        logger.error("IMOEX fetch error: %s", exc)
-    return None
-
 
 def _download_quote(ticker: str) -> dict | None:
     try:
@@ -68,11 +24,6 @@ def _download_quote(ticker: str) -> dict | None:
     except Exception as exc:
         logger.warning("Global quote %s failed: %s", ticker, exc)
         return None
-
-
-def fetch_usd_rub() -> float | None:
-    quote = _download_quote("USDRUB=X")
-    return round(quote["value"], 2) if quote else None
 
 
 def _emoji(change: float | None) -> str:

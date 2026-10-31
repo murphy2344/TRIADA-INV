@@ -54,21 +54,25 @@ UPSTASH_REDIS_REST_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
 
 DB_PATH = "data/bot.db"
 
-# Глобальные финансовые и деловые RSS-ленты.
+# Глобальные финансовые, макроэкономические и официальные источники.
+# Российские биржи и российские финансовые источники намеренно не включены.
 RSS_FEEDS = {
-    "Reuters Business": "https://news.google.com/rss/search?q=when:24h+site:reuters.com/business&ceid=US:en&hl=en-US&gl=US",
-    "Investing.com":    "https://www.investing.com/rss/news.rss",
-    "ForexLive":        "https://www.forexlive.com/feed/news",
-    "CNBC Markets":     "https://www.cnbc.com/id/100003114/device/rss/rss.html",
-    "WSJ Business":     "https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml",
+    "Investing.com": "https://www.investing.com/rss/news.rss",
+    "ForexLive": "https://www.forexlive.com/feed/news",
+    "CNBC Markets": "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+    "WSJ Business": "https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml",
     "Bloomberg Markets": "https://feeds.bloomberg.com/markets/news.rss",
     "Bloomberg Politics": "https://feeds.bloomberg.com/politics/news.rss",
-    "Reuters World":    "https://news.google.com/rss/search?q=when:24h+site:reuters.com/world&ceid=US:en&hl=en-US&gl=US",
-    "Reuters Money":    "https://news.google.com/rss/search?q=when:24h+site:reuters.com/business/finance&ceid=US:en&hl=en-US&gl=US",
-    "MarketWatch":      "https://www.marketwatch.com/rss/topstories",
-    "Financial Times":  "https://www.ft.com/?format=rss",
+    "MarketWatch": "https://www.marketwatch.com/rss/topstories",
+    "Financial Times": "https://www.ft.com/?format=rss",
     "Abnormal Returns": "https://abnormalreturns.com/feed",
-    "Ritholtz via Google News": "https://news.google.com/rss/search?q=when:24h+site:ritholtz.com&ceid=US:en&hl=en-US&gl=US",
-    "Barron's via Google News": "https://news.google.com/rss/search?q=when:24h+site:barrons.com&ceid=US:en&hl=en-US&gl=US",
-    "Seeking Alpha":    "https://seekingalpha.com/feed.xml",
+    "Seeking Alpha": "https://seekingalpha.com/feed.xml",
+    "AP Business": "https://apnews.com/hub/business?output=rss",
+    "Federal Reserve": "https://www.federalreserve.gov/feeds/press_all.xml",
+    "European Central Bank": "https://www.ecb.europa.eu/rss/press.html",
+    "IMF News": "https://www.imf.org/en/News/RSS",
+    "World Bank News": "https://www.worldbank.org/en/news/all?format=rss",
+    "US Energy Information Administration": "https://www.eia.gov/rss/todayinenergy.xml",
+    "US Treasury": "https://home.treasury.gov/news/press-releases/rss.xml",
+    "BIS": "https://www.bis.org/doclist/all_stats.rss",
 }
