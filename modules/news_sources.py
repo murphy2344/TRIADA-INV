@@ -117,13 +117,6 @@ def _fetch_one(source: str, feed_url: str, limit_per_feed: int) -> list[dict]:
             cache_headers["If-Modified-Since"] = response.headers["Last-Modified"]
 
         with _state_lock:
-            _feed_cache_headers[source] = cache_headers
-            _feed_items_cache[source] = items
-            _feed_last_success[source] = time.monotonic()
-            _feed_retry_after.pop(source, None)
-            _feed_failures.pop(source, None)
-            _feed_failure_logged.discard(source)
-
         items = []
         for entry in parsed.entries[:limit_per_feed]:
             title = (entry.get("title") or "").strip()
@@ -140,6 +133,13 @@ def _fetch_one(source: str, feed_url: str, limit_per_feed: int) -> list[dict]:
                 "published_at": _published_at(entry),
                 "source_domain": host,
             })
+        with _state_lock:
+            _feed_cache_headers[source] = cache_headers
+            _feed_items_cache[source] = [dict(item) for item in items]
+            _feed_last_success[source] = time.monotonic()
+            _feed_retry_after.pop(source, None)
+            _feed_failures.pop(source, None)
+            _feed_failure_logged.discard(source)
         logger.info("RSS_SOURCE_OK source=%s items=%d", source, len(items))
         return items
     except Exception as exc:
