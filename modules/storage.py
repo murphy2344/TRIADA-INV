@@ -610,6 +610,9 @@ async def archive_news_items(items: list[dict]) -> int:
                     published_at = CASE
                         WHEN excluded.published_at IS NOT NULL AND excluded.published_at <> ''
                         THEN excluded.published_at ELSE news_items.published_at END
+                WHERE
+                    COALESCE(excluded.summary, '') <> COALESCE(news_items.summary, '')
+                    OR COALESCE(excluded.published_at, '') <> COALESCE(news_items.published_at, '')
                 """,
                 (
                     news_id, title, str(item.get("source") or ""),
