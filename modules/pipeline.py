@@ -5,7 +5,7 @@ from datetime import datetime
 import pytz
 
 from modules import news_sources, ai_analyzer, charting, media, formatter
-from modules import dedup, storage, telegram_sender, critic, moex_leaders, market_pulse, econ_calendar, earnings, sector_heatmap, forum_topics, telegram_monitor
+from modules import dedup, storage, telegram_sender, critic, market_pulse, econ_calendar, earnings, sector_heatmap, forum_topics, telegram_monitor
 from config.config import ADMIN_ID
 
 logger = logging.getLogger(__name__)
@@ -417,26 +417,28 @@ async def run_exchange_open(bot, exchange: str, index: str):
 
 
 async def run_leaders(bot, admin_id: str = None) -> int:
+    """Global top movers across supported international markets."""
     try:
-        all_periods = await asyncio.to_thread(moex_leaders.get_all_periods_leaders, 5)
-    except Exception as e:
-        logger.error(f"MOEX leaders error: {e}")
+        from modules import market_screener
+        movers = await asyncio.to_thread(market_screener.scan_top_movers)
+        if not movers:
+            logger.info("run_leaders: no global top movers available")
+            return 0
+        text = market_screener.format_screener_results("top_movers", movers)
+        ok = await telegram_sender.send_text(
+            bot, text, **_topic_kwargs_for_key("markets")
+        )
+        if ok:
+            await storage.increment_stats()
+            return 1
+        return 0
+    except Exception as exc:
+        logger.error("Global leaders error: %s", exc)
         if admin_id:
             await telegram_sender.notify_admin(
-                bot, admin_id, f"❌ Не удалось получить данные MOEX: {e}"
+                bot, admin_id, f"❌ Не удалось получить глобальных лидеров рынка: {exc}"
             )
         return 0
-
-    header, body = formatter.fmt_leaders(all_periods)
-    photo = "assets/stubs/moex.jpg"
-    ok = await telegram_sender.send_photo_text(
-        bot, photo, f"{header}\n\n{body}", **_topic_kwargs_for_key("markets")
-    )
-    if ok:
-        await storage.increment_stats()
-        return 1
-    return 0
-
 
 async def update_market_pulse(bot, admin_id: str = None):
     """Обновляет закреплённое сообщение с пульсом рынка."""
