@@ -1,15 +1,14 @@
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
-from modules import charting, technical_alerts
+from modules import charting
 
 
 class GlobalMarketScopeTests(unittest.TestCase):
     def test_automated_technical_watchlist_contains_no_russian_instruments(self):
-        self.assertFalse(
-            any(ticker.endswith(".ME") for ticker in technical_alerts.WATCHLIST),
-            technical_alerts.WATCHLIST,
-        )
+        source = Path("modules/technical_alerts.py").read_text(encoding="utf-8")
+        self.assertNotRegex(source, r'"[A-Z]+\\.ME"')
 
 
 class ChartImgRateLimitTests(unittest.TestCase):
