@@ -206,39 +206,68 @@ def _chart_img_error_detail(response, api_key: str) -> str:
     return f"content_type={content_type}, detail={detail or 'no safe error message provided'}"
 
 
+# Chart-IMG free-tier protection: serialize requests and back off globally after 429.
+_CHART_IMG_LOCK = threading.Lock()
+_CHART_IMG_LAST_REQUEST_AT = 0.0
+_CHART_IMG_COOLDOWN_UNTIL = 0.0
+_CHART_IMG_MIN_INTERVAL_SECONDS = 10.0
+_CHART_IMG_RATE_LIMIT_COOLDOWN_SECONDS = 900.0
+
+
 def _chart_img(ticker: str) -> bytes | None:
-    """Chart-IMG v1 TradingView image. Fail safely and log non-secret diagnostics."""
+    """Fetch a Chart-IMG chart with a process-wide rate limit and 429 cooldown."""
+    global _CHART_IMG_LAST_REQUEST_AT, _CHART_IMG_COOLDOWN_UNTIL
     if not CHART_IMG_API_KEY:
         logger.debug("Chart-IMG skipped: CHART_IMG_API_KEY is not configured")
         return None
-    try:
-        response = requests.get(
-            "https://api.chart-img.com/v1/tradingview/advanced-chart",
-            params={"symbol": chart_img_symbol(ticker), "interval": "1d"},
-            # v1 uses Bearer authentication; x-api-key is documented for v2.
-            headers={
-                "Authorization": f"Bearer {CHART_IMG_API_KEY}",
-                "Accept": "image/png",
-            },
-            timeout=20,
-        )
-        content_type = response.headers.get("Content-Type", "")
-        if response.ok and content_type.lower().startswith("image/") and (
-            response.content.startswith(b"\x89PNG\r\n\x1a\n")
-            or response.content.startswith(b"\xff\xd8\xff")
-        ):
-            logger.info("Chart-IMG chart OK for %s (%s)", ticker, content_type.split(";", 1)[0])
-            return response.content
 
-        diagnostic = _chart_img_error_detail(response, CHART_IMG_API_KEY)
-        logger.warning(
-            "Chart-IMG failed for %s: HTTP %s; %s",
-            ticker, response.status_code, diagnostic,
-        )
-    except Exception as exc:
-        logger.warning("Chart-IMG request error for %s: %s", ticker, type(exc).__name__)
+    # The lock covers the request so concurrent chart commands cannot burst the
+    # free-tier endpoint. A 429 pauses all symbols, not just the current ticker.
+    with _CHART_IMG_LOCK:
+        now = time.monotonic()
+        if now < _CHART_IMG_COOLDOWN_UNTIL:
+            logger.info("Chart-IMG skipped for %s: global rate-limit cooldown (%ds left)",
+                        ticker, int(_CHART_IMG_COOLDOWN_UNTIL - now))
+            return None
+
+        wait = _CHART_IMG_MIN_INTERVAL_SECONDS - (now - _CHART_IMG_LAST_REQUEST_AT)
+        if _CHART_IMG_LAST_REQUEST_AT and wait > 0:
+            time.sleep(wait)
+
+        _CHART_IMG_LAST_REQUEST_AT = time.monotonic()
+        try:
+            response = requests.get(
+                "https://api.chart-img.com/v1/tradingview/advanced-chart",
+                params={"symbol": chart_img_symbol(ticker), "interval": "1d"},
+                headers={
+                    "Authorization": f"Bearer {CHART_IMG_API_KEY}",
+                    "Accept": "image/png",
+                },
+                timeout=20,
+            )
+            content_type = response.headers.get("Content-Type", "")
+            if response.ok and content_type.lower().startswith("image/") and (
+                response.content.startswith(b"\x89PNG\r\n\x1a\n")
+                or response.content.startswith(b"\xff\xd8\xff")
+            ):
+                logger.info("Chart-IMG chart OK for %s (%s)", ticker, content_type.split(";", 1)[0])
+                return response.content
+
+            if response.status_code == 429:
+                _CHART_IMG_COOLDOWN_UNTIL = (
+                    time.monotonic() + _CHART_IMG_RATE_LIMIT_COOLDOWN_SECONDS
+                )
+                logger.warning("Chart-IMG rate limited (HTTP 429); pausing requests for %d seconds",
+                               int(_CHART_IMG_RATE_LIMIT_COOLDOWN_SECONDS))
+
+            diagnostic = _chart_img_error_detail(response, CHART_IMG_API_KEY)
+            logger.warning(
+                "Chart-IMG failed for %s: HTTP %s; %s",
+                ticker, response.status_code, diagnostic,
+            )
+        except Exception as exc:
+            logger.warning("Chart-IMG request error for %s: %s", ticker, type(exc).__name__)
     return None
-
 
 # Yahoo Finance sometimes rate-limits or returns empty history while its crumb
 # endpoint is unavailable. A short process-wide cooldown prevents every scheduled

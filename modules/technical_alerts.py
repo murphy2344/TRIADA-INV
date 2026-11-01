@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 WATCHLIST = [
     "AAPL", "TSLA", "NVDA", "MSFT", "GOOGL",
-    "SBER.ME", "GAZP.ME", "LKOH.ME",
     "GC=F", "CL=F", "BTC-USD",
 ]
 

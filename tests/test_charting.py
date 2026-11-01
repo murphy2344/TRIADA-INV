@@ -10,6 +10,9 @@ except ModuleNotFoundError as exc:
 
 
 class ChartImgTests(unittest.TestCase):
+    def setUp(self):
+        charting._CHART_IMG_LAST_REQUEST_AT = 0.0
+        charting._CHART_IMG_COOLDOWN_UNTIL = 0.0
 
     def test_chart_img_uses_tradingview_symbols_for_yahoo_futures_and_fx(self):
         self.assertEqual(charting.chart_img_symbol("CL=F"), "NYMEX:CL1!")
