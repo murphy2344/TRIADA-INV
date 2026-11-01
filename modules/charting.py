@@ -247,8 +247,8 @@ def _chart_img(ticker: str) -> bytes | None:
             )
             content_type = response.headers.get("Content-Type", "")
             if response.ok and content_type.lower().startswith("image/") and (
-                response.content.startswith(b"\\x89PNG\\r\\n\\x1a\\n")
-                or response.content.startswith(b"\\xff\\xd8\\xff")
+                response.content.startswith(b"\x89PNG\r\n\x1a\n")
+                or response.content.startswith(b"\xff\xd8\xff")
             ):
                 logger.info("Chart-IMG chart OK for %s (%s)", ticker, content_type.split(";", 1)[0])
                 return response.content
