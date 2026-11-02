@@ -250,7 +250,7 @@ def _analyze_gemini(prompt: str, category: str, model: str | None = None) -> dic
         data = response.json()
         usage = data.get("usageMetadata") or {}
         text = data["candidates"][0]["content"]["parts"][0]["text"]
-        result = _normalize_result(json.loads(text), category)
+        result = _normalize_result(_parse_json_object(text), category)
         _usage_log("Gemini", model, started, usage, "success", 1)
         logger.info("AI_RESULT provider=Gemini model=%s relevant=%s", model, result.get("relevant"))
         return result
