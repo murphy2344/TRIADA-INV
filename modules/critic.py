@@ -1,6 +1,7 @@
 """Independent AI critic for high-impact BREAKING recommendations."""
 import json
 import logging
+import re
 import os
 from urllib.parse import quote
 
@@ -38,6 +39,38 @@ CRITIC_SYSTEM_PROMPT = """Ты — независимый риск-аналит�
 }"""
 
 
+def _parse_critic_result(raw_text: str) -> dict:
+    """Parse and validate the critic contract before it reaches a published post."""
+    text = (raw_text or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*```$", "", text)
+    try:
+        result = json.loads(text)
+    except json.JSONDecodeError:
+        start, end = text.find("{"), text.rfind("}")
+        if start < 0 or end <= start:
+            raise
+        result = json.loads(text[start:end + 1])
+
+    if not isinstance(result, dict):
+        raise ValueError("Critic JSON must be an object")
+    agree = result.get("agree")
+    recommendation = str(result.get("critic_recommendation") or "").strip().lower()
+    note = result.get("critic_note")
+    if not isinstance(agree, bool):
+        raise ValueError("Critic field 'agree' must be boolean")
+    if recommendation not in {"long", "short", "neutral"}:
+        raise ValueError("Critic field 'critic_recommendation' must be long, short, or neutral")
+    if not isinstance(note, str) or not note.strip():
+        raise ValueError("Critic field 'critic_note' must be a non-empty string")
+    return {
+        "agree": agree,
+        "critic_recommendation": recommendation,
+        "critic_note": note.strip()[:600],
+    }
+
+
 def _prompt(summary: str, recommendation: str, recommendation_text: str) -> str:
     return (
         f"Новость: {summary}\n"
@@ -73,7 +106,7 @@ def _review_with_gemini(
     response.raise_for_status()
     data = response.json()
     text = data["candidates"][0]["content"]["parts"][0]["text"]
-    return json.loads(text)
+    return _parse_critic_result(text)
 
 
 def review(summary: str, recommendation: str, recommendation_text: str) -> dict | None:
@@ -115,7 +148,7 @@ def review(summary: str, recommendation: str, recommendation_text: str) -> dict 
                 max_tokens=256,
                 response_format={"type": "json_object"},
             )
-            result = json.loads(response.choices[0].message.content)
+            result = _parse_critic_result(response.choices[0].message.content)
             logger.info(
                 "Critic (Groq/%s): agree=%s, rec=%s",
                 model, result.get("agree"), result.get("critic_recommendation"),
