@@ -86,6 +86,21 @@ class NewsSourceCacheTests(unittest.TestCase):
         self.assertEqual([item['id'] for item in items], ['cached-id'])
         self.assertIn(self.source, news_sources._feed_retry_after)
 
+    @patch.object(news_sources.requests, 'get')
+    def test_failure_log_includes_http_status(self, get):
+        response = type('Response', (), {'status_code': 503, 'headers': {}})()
+        def fail_request():
+            raise news_sources.requests.HTTPError('HTTP 503 unavailable', response=response)
+        response.raise_for_status = lambda: fail_request()
+        get.return_value = response
+        news_sources._feed_failure_logged.discard(self.source)
+
+        with self.assertLogs(news_sources.logger, level='WARNING') as captured:
+            news_sources._fetch_one(self.source, self.url, 3)
+
+        self.assertIn('status=503', captured.output[0])
+        self.assertIn('detail=HTTP 503 unavailable', captured.output[0])
+
 
 class BreakingNewsQueueReuseTests(unittest.TestCase):
     @patch.object(news_sources, 'fetch_news')

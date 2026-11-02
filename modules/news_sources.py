@@ -182,9 +182,11 @@ def _fetch_one(source: str, feed_url: str, limit_per_feed: int) -> list[dict]:
             first_log = source not in _feed_failure_logged
             _feed_failure_logged.add(source)
         if first_log:
+            # Keep operational diagnostics useful without leaking full URLs or query parameters.
+            detail = re.sub(r"https?://\S+", "<url>", str(exc)).replace("\n", " ")[:120]
             logger.warning(
-                "RSS_SOURCE_FAIL source=%s host=%s cooldown_s=%d error=%s",
-                source, host, cooldown, type(exc).__name__,
+                "RSS_SOURCE_FAIL source=%s host=%s status=%s cooldown_s=%d error=%s detail=%s",
+                source, host, response_status or "n/a", cooldown, type(exc).__name__, detail,
             )
         # Serve the last known-good payload during an outage. Downstream
         # publication deduplication prevents reposting already handled items.
