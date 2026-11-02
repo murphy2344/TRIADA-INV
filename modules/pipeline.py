@@ -764,7 +764,11 @@ async def check_recommendations(bot=None, admin_id: str = None):
             "price_at_post": rec["price_at_post"],
             "price_after": price_after,
             "correct": correct,
-            "pnl_percent": metrics["pnl_percent"],
+            "pnl_percent": (
+                metrics["pnl_percent"]
+                if rec["recommendation"] == "long"
+                else -metrics["pnl_percent"]
+            ),
             "max_drawdown_percent": metrics["max_drawdown_percent"],
             "horizon_hours": rec.get("horizon_hours", 24),
         })

@@ -400,31 +400,38 @@ def fmt_econ_calendar_today(releases: list) -> str:
 
 
 def fmt_track_record_result(results: list) -> str:
-    """Публикует итоги проверки рекомендаций через 24 часа.
-    results: list of dicts — ticker, recommendation, price_at_post, price_after, correct"""
+    """Format checked signals with returns adjusted for long/short direction."""
     if not results:
         return ""
 
     lines = []
     for r in results:
         ticker = _e(r["ticker"])
-        rec = REC_MAP.get(r["recommendation"], r["recommendation"])
+        recommendation = str(r.get("recommendation") or "neutral").lower()
+        rec = REC_MAP.get(recommendation, recommendation)
         price_at = r["price_at_post"]
         price_after = r["price_after"]
-        try:
-            change_pct = (price_after - price_at) / price_at * 100
-        except ZeroDivisionError:
-            change_pct = 0.0
+        raw_change_pct = (
+            (price_after - price_at) / price_at * 100
+            if price_at else 0.0
+        )
+        # PnL is a directional return: a falling asset is positive for short.
+        change_pct = r.get("pnl_percent")
+        if change_pct is None:
+            change_pct = raw_change_pct if recommendation == "long" else (
+                -raw_change_pct if recommendation == "short" else 0.0
+            )
         sign = "+" if change_pct >= 0 else ""
         ok_icon = "✅" if r["correct"] else "❌"
+        horizon = int(r.get("horizon_hours") or 24)
         lines.append(
-            f"{ok_icon} <b>{ticker}</b> — {rec}\n"
-            f"Цена тогда: <code>{price_at:,.2f}</code> → сейчас: <code>{price_after:,.2f}</code> "
-            f"(<code>{sign}{change_pct:.2f}%</code>)"
+            f"{ok_icon} <b>{ticker}</b> — {rec} · горизонт {horizon} ч\n"
+            f"Цена входа: <code>{price_at:,.2f}</code> → итог: <code>{price_after:,.2f}</code> "
+            f"(доходность по направлению: <code>{sign}{change_pct:.2f}%</code>)"
         )
 
     return (
-        "<b>🎯 ПРОВЕРКА РЕКОМЕНДАЦИЙ (24 часа)</b>\n\n"
+        "<b>🎯 СВЕРКА РЕЗУЛЬТАТОВ СИГНАЛОВ</b>\n\n"
         + "\n\n".join(lines)
         + "\n\n#ТрекРекорд #Инвестиции"
     )
