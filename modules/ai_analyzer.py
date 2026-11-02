@@ -250,7 +250,7 @@ def _analyze_gemini(prompt: str, category: str, model: str | None = None) -> dic
         data = response.json()
         usage = data.get("usageMetadata") or {}
         text = data["candidates"][0]["content"]["parts"][0]["text"]
-        result = _normalize_result(json.loads(text), category)
+        result = _normalize_result(_parse_json_object(text), category)
         _usage_log("Gemini", model, started, usage, "success", 1)
         logger.info("AI_RESULT provider=Gemini model=%s relevant=%s", model, result.get("relevant"))
         return result
@@ -275,7 +275,13 @@ def _parse_json_object(raw_text: str) -> dict:
         start, end = text.find("{"), text.rfind("}")
         if start < 0 or end <= start:
             raise
-        parsed = json.loads(text[start:end + 1])
+        candidate = text[start:end + 1]
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            # Repair only trailing commas; never invent missing fields.
+            repaired = re.sub(r",\s*([}\]])", r"\1", candidate)
+            parsed = json.loads(repaired)
     if not isinstance(parsed, dict):
         raise ValueError("AI response JSON must be an object")
     return parsed

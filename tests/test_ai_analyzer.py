@@ -96,6 +96,11 @@ class AIJsonParsingTests(unittest.TestCase):
             {"skip": True},
         )
 
+    def test_parse_json_with_trailing_commas(self):
+        self.assertEqual(
+            ai_analyzer._parse_json_object('{"skip": true, "assets": ["SPY",],}'),
+            {"skip": True, "assets": ["SPY"]},
+        )
     def test_reject_non_object_json(self):
         with self.assertRaises(ValueError):
             ai_analyzer._parse_json_object('[1, 2, 3]')
