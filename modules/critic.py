@@ -31,12 +31,9 @@ CRITIC_SYSTEM_PROMPT = """Ты — независимый риск-аналит�
 соглашаться автоматически, а по-настоящему проверить логику: есть ли слабые места,
 альтернативное объяснение, риски или контраргументы, которые первый аналитик мог упустить.
 
-Отвечай СТРОГО валидным JSON, без markdown, без преамбулы:
-{
-  "agree": true/false,
-  "critic_recommendation": "long | short | neutral",
-  "critic_note": "краткое пояснение на русском, максимум 2 предложения — в чём согласен или не согласен"
-}"""
+Верни компактный СТРОГО валидный JSON (без markdown и преамбулы).
+Не добавляй рассуждения вне JSON. Поля:
+{"agree":true,"critic_recommendation":"long|short|neutral","critic_note":"краткое пояснение по-русски, не более 2 предложений"}"""
 
 
 def _parse_critic_result(raw_text: str) -> dict:
@@ -145,9 +142,22 @@ def review(summary: str, recommendation: str, recommendation_text: str) -> dict 
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.4,
-                max_tokens=256,
+                max_tokens=512,
             )
-            result = _parse_critic_result(response.choices[0].message.content)
+            message = response.choices[0].message
+            raw_content = message.content
+            if not isinstance(raw_content, str) or not raw_content.strip():
+                finish_reason = getattr(response.choices[0], "finish_reason", None)
+                usage = getattr(response, "usage", None)
+                completion_tokens = getattr(usage, "completion_tokens", None)
+                logger.warning(
+                    "Critic Groq empty content (%s): finish_reason=%s completion_tokens=%s",
+                    model, finish_reason, completion_tokens,
+                )
+                raise ValueError(
+                    f"Groq returned empty critic content (finish_reason={finish_reason})"
+                )
+            result = _parse_critic_result(raw_content)
             logger.info(
                 "Critic (Groq/%s): agree=%s, rec=%s",
                 model, result.get("agree"), result.get("critic_recommendation"),
