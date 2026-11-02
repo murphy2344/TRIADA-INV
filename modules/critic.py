@@ -39,6 +39,8 @@ CRITIC_SYSTEM_PROMPT = """Ты — независимый риск-аналит�
 def _parse_critic_result(raw_text: str) -> dict:
     """Parse and validate the critic contract before it reaches a published post."""
     text = (raw_text or "").strip()
+    if not text:
+        raise ValueError("Critic returned empty content")
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
         text = re.sub(r"\s*```$", "", text)
