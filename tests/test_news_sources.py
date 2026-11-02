@@ -180,5 +180,16 @@ class NewsSourceHealthTests(unittest.TestCase):
         news_sources._finnhub_cache = previous_cache
 
 
+class RSSFeedConfigurationTests(unittest.TestCase):
+    def test_repaired_official_and_publisher_feed_endpoints(self):
+        from config.config import RSS_FEEDS
+        self.assertEqual(RSS_FEEDS["IMF News"], "https://www.imf.org/en/News/rss?language_id=1")
+        self.assertEqual(RSS_FEEDS["World Bank Blogs"], "https://blogs.worldbank.org/feed")
+        self.assertEqual(RSS_FEEDS["BIS"], "https://www.bis.org/doclist/all_pressrels.rss")
+        self.assertEqual(RSS_FEEDS["US Public Debt"], "https://www.treasurydirect.gov/rss/mspd.xml")
+        self.assertNotIn("World Bank News", RSS_FEEDS)
+        self.assertNotIn("US Treasury", RSS_FEEDS)
+
+
 if __name__ == "__main__":
     unittest.main()
