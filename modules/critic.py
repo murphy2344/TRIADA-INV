@@ -146,7 +146,6 @@ def review(summary: str, recommendation: str, recommendation_text: str) -> dict 
                 ],
                 temperature=0.4,
                 max_tokens=256,
-                response_format={"type": "json_object"},
             )
             result = _parse_critic_result(response.choices[0].message.content)
             logger.info(
