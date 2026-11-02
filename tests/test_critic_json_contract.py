@@ -26,6 +26,10 @@ class CriticJsonContractTests(unittest.TestCase):
         self.assertFalse(result["agree"])
         self.assertEqual(result["critic_recommendation"], "neutral")
 
+    def test_empty_response_is_rejected_with_clear_error(self):
+        with self.assertRaisesRegex(ValueError, "empty content"):
+            critic._parse_critic_result("   ")
+
     def test_non_object_json_is_rejected(self):
         with self.assertRaises(ValueError):
             critic._parse_critic_result('[{"agree": true}]')
