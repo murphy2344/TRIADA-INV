@@ -275,7 +275,13 @@ def _parse_json_object(raw_text: str) -> dict:
         start, end = text.find("{"), text.rfind("}")
         if start < 0 or end <= start:
             raise
-        parsed = json.loads(text[start:end + 1])
+        candidate = text[start:end + 1]
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            # Repair only trailing commas; never invent missing fields.
+            repaired = re.sub(r",\s*([}\]])", r"\1", candidate)
+            parsed = json.loads(repaired)
     if not isinstance(parsed, dict):
         raise ValueError("AI response JSON must be an object")
     return parsed
