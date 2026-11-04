@@ -56,7 +56,7 @@ def _set_provider_cooldown(provider: str, model: str, exc: Exception, code: str)
     message = str(exc).lower()
     if code == "429" or "429" in message or "rate limit" in message or "quota" in message:
         # Daily token quota errors should not be retried every news cycle.
-        seconds = 6 * 60 * 60 if ("tokens per day" in message or "tpd" in message) else 10 * 60
+        seconds = 22 * 60 * 60 if ("tokens per day" in message or "tpd" in message) else 30 * 60
     elif code == "503" or "503" in message or "service unavailable" in message:
         seconds = 2 * 60
     elif code == "TIMEOUT" or "timeout" in message or "timed out" in message:
