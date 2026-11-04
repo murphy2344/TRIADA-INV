@@ -351,7 +351,7 @@ def fetch_breaking_news(limit_per_feed: int = 2, items: list[dict] | None = None
             2 if any(word in headline for word in high_impact_keywords) else 0
         )
         scored.append((score, str(item.get("published_at") or ""), item))
-    scored.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    scored.sort(key=lambda row: (-row[0], row[1] or "9999"))
     selected = [row[2] for row in scored[:max(1, limit_per_feed)]]
     return selected
 
