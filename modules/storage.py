@@ -669,7 +669,7 @@ async def update_news_processing(
 
 
 async def get_pending_news(limit: int = 100) -> list[dict]:
-    """Return collected news awaiting AI processing, newest market events first."""
+    """Return collected news awaiting AI processing, oldest queued market events first."""
     import json
     from datetime import datetime, timedelta, timezone
     safe_limit = max(1, min(int(limit), 500))
@@ -689,7 +689,7 @@ async def get_pending_news(limit: int = 100) -> list[dict]:
               AND (published_at IS NULL OR published_at = '' OR published_at >= ?)
             ORDER BY
                 CASE WHEN published_at IS NULL OR published_at = '' THEN 1 ELSE 0 END,
-                published_at DESC,
+                published_at ASC,
                 first_seen_at ASC
             LIMIT ?
             """,
