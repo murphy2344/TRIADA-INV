@@ -49,6 +49,16 @@ class AIFailoverTests(unittest.TestCase):
         finally:
             ai_analyzer._PROVIDER_COOLDOWNS.pop(key, None)
 
+    def test_provider_server_error_starts_cooldown(self):
+        key = ("Gemini", "server-error-model")
+        ai_analyzer._PROVIDER_COOLDOWNS.pop(key, None)
+        try:
+            error = RuntimeError("HTTP 502 bad gateway")
+            ai_analyzer._set_provider_cooldown("Gemini", "server-error-model", error, "502")
+            self.assertTrue(ai_analyzer._provider_is_cooling_down("Gemini", "server-error-model"))
+        finally:
+            ai_analyzer._PROVIDER_COOLDOWNS.pop(key, None)
+
     @patch.object(ai_analyzer, "_analyze_groq")
     @patch.object(ai_analyzer, "_analyze_gemini")
     def test_failover_is_bounded_and_stops_on_success(self, gemini, groq):
