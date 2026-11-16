@@ -57,8 +57,12 @@ def _set_provider_cooldown(provider: str, model: str, exc: Exception, code: str)
     if code == "429" or "429" in message or "rate limit" in message or "quota" in message:
         # Daily token quota errors should not be retried every news cycle.
         seconds = 22 * 60 * 60 if ("tokens per day" in message or "tpd" in message) else 30 * 60
-    elif code == "503" or "503" in message or "service unavailable" in message:
-        seconds = 2 * 60
+    elif code in {"500", "502", "503", "504"} or any(
+        marker in message for marker in ("500", "502", "503", "504", "service unavailable", "bad gateway")
+    ):
+        # Provider-side server errors are transient; avoid paying the same
+        # latency on every two-minute news poll while fallback providers run.
+        seconds = 3 * 60
     elif code == "TIMEOUT" or "timeout" in message or "timed out" in message:
         # Avoid waiting through the full request timeout on every news cycle
         # when a provider is temporarily slow. The fallback chain still runs
