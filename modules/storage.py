@@ -673,18 +673,31 @@ async def get_pending_news(limit: int = 100) -> list[dict]:
     import json
     from datetime import datetime, timedelta, timezone
     safe_limit = max(1, min(int(limit), 500))
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=72)).isoformat()
-    retry_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now(timezone.utc)
+    cutoff = (now - timedelta(hours=72)).isoformat()
+    # Retry transient AI/provider failures with exponential backoff. The cap
+    # keeps retries alive long enough to outlast daily quota cooldowns without
+    # letting a permanently broken item consume the queue forever.
+    retry_conditions = []
+    retry_params = []
+    for retry_count in range(1, 10):
+        delay_minutes = min(12 * 60, 15 * (2 ** (retry_count - 1)))
+        # Keep this as an aware datetime: PostgreSQL stores processed_at as
+        # TIMESTAMPTZ, while SQLite adapts datetime values to its timestamp text.
+        retry_cutoff = now - timedelta(minutes=delay_minutes)
+        retry_conditions.append("(COALESCE(retry_count, 0) = ? AND processed_at <= ?)")
+        retry_params.extend((retry_count, retry_cutoff))
+    retry_sql = " OR ".join(retry_conditions)
     async with db_compat.connect(DB_PATH) as db:
         async with db.execute(
-            """
+            f"""
             SELECT news_id, title, source, url, summary, published_at,
                    source_count, corroborating_sources_json, retry_count, analysis_json
             FROM news_items
             WHERE (
                 processing_status IN ('collected', 'ready_to_publish')
-                OR (processing_status = 'failed' AND COALESCE(retry_count, 0) < 3
-                    AND processed_at <= ?)
+                OR (processing_status = 'failed' AND COALESCE(retry_count, 0) < 10
+                    AND ({retry_sql}))
             )
               AND (published_at IS NULL OR published_at = '' OR published_at >= ?)
             ORDER BY
@@ -693,7 +706,7 @@ async def get_pending_news(limit: int = 100) -> list[dict]:
                 first_seen_at ASC
             LIMIT ?
             """,
-            (retry_cutoff, cutoff, safe_limit),
+            (*retry_params, cutoff, safe_limit),
         ) as cursor:
             rows = await cursor.fetchall()
     result = []

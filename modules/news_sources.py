@@ -340,7 +340,7 @@ def fetch_breaking_news(limit_per_feed: int = 2, items: list[dict] | None = None
     )
     high_impact_keywords = (
         "fed", "powell", "central bank", "rate decision", "inflation", "cpi",
-        "jobs report", "earnings", "tariff", "opec", "bank failure",
+        "jobs report", "tariff", "opec", "bank failure",
     )
     all_news = items if items is not None else fetch_news(limit_per_feed)
     all_news = [item for item in all_news if not is_excluded_russian_market_story(item)]
@@ -351,7 +351,9 @@ def fetch_breaking_news(limit_per_feed: int = 2, items: list[dict] | None = None
             2 if any(word in headline for word in high_impact_keywords) else 0
         )
         scored.append((score, str(item.get("published_at") or ""), item))
-    scored.sort(key=lambda row: (-row[0], row[1] or "9999"))
+    # Rank material events first; within the same priority, process the
+    # newest items first. Empty timestamps naturally fall behind dated news.
+    scored.sort(key=lambda row: (row[0], row[1] or ""), reverse=True)
     selected = [row[2] for row in scored[:max(1, limit_per_feed)]]
     return selected
 
