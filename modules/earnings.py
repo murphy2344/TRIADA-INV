@@ -10,8 +10,8 @@
 """
 import logging
 import datetime
+from typing import Any
 from modules import charting
-import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,13 @@ WATCHLIST = [
 ]
 
 
-def _get_earnings_df(ticker: str) -> pd.DataFrame | None:
+def _get_pandas():
+    """Load pandas only when an earnings scan is actually requested."""
+    import pandas as pd
+    return pd
+
+
+def _get_earnings_df(ticker: str) -> Any | None:
     try:
         df = charting._fetch_yfinance_earnings_dates(ticker, limit=8)
         if df is None or df.empty:
@@ -40,6 +46,7 @@ def _get_earnings_df(ticker: str) -> pd.DataFrame | None:
 
 
 def check_today() -> list[dict]:
+    pd = _get_pandas()
     """Companies reporting today."""
     now = pd.Timestamp.now(tz="UTC")
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -71,6 +78,7 @@ def check_today() -> list[dict]:
 
 
 def check_this_week() -> list[dict]:
+    pd = _get_pandas()
     """Companies reporting this week (next 7 days)."""
     now = pd.Timestamp.now(tz="UTC")
     week_end = now + pd.Timedelta(days=7)
@@ -101,6 +109,7 @@ def check_this_week() -> list[dict]:
 
 
 def check_upcoming(days_ahead: int = 3) -> list[dict]:
+    pd = _get_pandas()
     """Компании из watchlist, которые отчитываются в ближайшие days_ahead дней."""
     now = pd.Timestamp.now(tz="UTC")
     horizon = now + pd.Timedelta(days=days_ahead)
@@ -125,6 +134,7 @@ def check_upcoming(days_ahead: int = 3) -> list[dict]:
 
 
 def check_recent_results(days_back: int = 2) -> list[dict]:
+    pd = _get_pandas()
     """Компании из watchlist, которые отчитались за последние days_back дней
     и у которых уже есть фактический результат (Reported EPS не пустой)."""
     now = pd.Timestamp.now(tz="UTC")
