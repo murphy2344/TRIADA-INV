@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 try:
@@ -107,6 +108,8 @@ class PendingNewsQueueTests(unittest.IsolatedAsyncioTestCase):
         # followed by the live-news age cutoff and bounded page size.
         self.assertEqual(len(params), 20)
         self.assertEqual([params[index] for index in range(0, 18, 2)], list(range(1, 10)))
+        self.assertTrue(all(isinstance(params[index], datetime) for index in range(1, 18, 2)))
+        self.assertTrue(all(params[index].tzinfo == timezone.utc for index in range(1, 18, 2)))
         self.assertEqual(params[-1], 25)
 
 
