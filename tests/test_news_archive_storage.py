@@ -99,9 +99,15 @@ class PendingNewsQueueTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(items[0]["source_count"], 2)
         self.assertEqual(items[0]["corroborating_sources"], ["Publisher A", "Publisher B"])
         self.assertEqual(items[0]["retry_count"], 1)
-        self.assertIn("processing_status = 'failed'", db.statements[0][0])
-        self.assertIn("COALESCE(retry_count, 0) < 3", db.statements[0][0])
-        self.assertIn("processed_at <= ?", db.statements[0][0])
+        query, params = db.statements[0]
+        self.assertIn("processing_status = 'failed'", query)
+        self.assertIn("COALESCE(retry_count, 0) < 10", query)
+        self.assertIn("processed_at <= ?", query)
+        # Nine retry tiers are passed as (retry_count, cutoff) pairs,
+        # followed by the live-news age cutoff and bounded page size.
+        self.assertEqual(len(params), 20)
+        self.assertEqual([params[index] for index in range(0, 18, 2)], list(range(1, 10)))
+        self.assertEqual(params[-1], 25)
 
 
 class EventFingerprintTests(unittest.TestCase):
