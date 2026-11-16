@@ -129,6 +129,22 @@ class BreakingNewsPriorityTests(unittest.TestCase):
         selected = news_sources.fetch_breaking_news(1, items)
         self.assertEqual([item['id'] for item in selected], ['newer'])
 
+    def test_routine_earnings_are_not_promoted_above_macro_data(self):
+        items = [
+            {'id': 'routine', 'title': 'Company reports quarterly earnings', 'summary': '', 'published_at': '2026-10-31T14:00:00Z'},
+            {'id': 'macro', 'title': 'Inflation data released', 'summary': '', 'published_at': '2026-10-31T12:00:00Z'},
+        ]
+        selected = news_sources.fetch_breaking_news(1, items)
+        self.assertEqual([item['id'] for item in selected], ['macro'])
+
+    def test_missing_timestamp_is_ranked_after_known_news(self):
+        items = [
+            {'id': 'unknown', 'title': 'Company expands office', 'summary': '', 'published_at': ''},
+            {'id': 'known', 'title': 'Company updates product range', 'summary': '', 'published_at': '2026-10-31T13:00:00Z'},
+        ]
+        selected = news_sources.fetch_breaking_news(1, items)
+        self.assertEqual([item['id'] for item in selected], ['known'])
+
 
 class GlobalMarketScopeTests(unittest.TestCase):
     def test_excludes_russian_equity_market_news(self):
