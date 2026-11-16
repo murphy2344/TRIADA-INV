@@ -682,7 +682,9 @@ async def get_pending_news(limit: int = 100) -> list[dict]:
     retry_params = []
     for retry_count in range(1, 10):
         delay_minutes = min(12 * 60, 15 * (2 ** (retry_count - 1)))
-        retry_cutoff = (now - timedelta(minutes=delay_minutes)).strftime("%Y-%m-%d %H:%M:%S")
+        # Keep this as an aware datetime: PostgreSQL stores processed_at as
+        # TIMESTAMPTZ, while SQLite adapts datetime values to its timestamp text.
+        retry_cutoff = now - timedelta(minutes=delay_minutes)
         retry_conditions.append("(COALESCE(retry_count, 0) = ? AND processed_at <= ?)")
         retry_params.extend((retry_count, retry_cutoff))
     retry_sql = " OR ".join(retry_conditions)
