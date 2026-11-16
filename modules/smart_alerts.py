@@ -14,7 +14,6 @@ import logging
 from typing import Any
 
 from modules import charting
-import pandas as pd
 
 logger = logging.getLogger(__name__)
 
